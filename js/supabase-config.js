@@ -98,6 +98,16 @@ class SupabaseManager {
         console.warn("Supabase fetchLiveTeams error:", error);
         return null;
       }
+      if (data && Array.isArray(data)) {
+        data.forEach(t => {
+          if (!t) return;
+          if (!t.active_session_token && t.avatar && t.avatar.includes('|sess:')) {
+            const parts = t.avatar.split('|sess:');
+            t.avatar = parts[0];
+            t.active_session_token = parts[1] || null;
+          }
+        });
+      }
       return data || [];
     } catch (e) {
       console.warn("Supabase fetchLiveTeams exception:", e);
@@ -201,18 +211,81 @@ class SupabaseManager {
     }
   }
 
-  async resetPassword(teamId, newPassword) {
+  async resetPassword(teamId, newPassword, email = null) {
     if (!this.client) return null;
     try {
-      const { data, error } = await this.client
-        .from("teams")
-        .update({ password_hash: newPassword })
-        .eq("id", teamId);
+      const cleanEmail = email ? email.trim().toLowerCase() : null;
+      const isUuid = teamId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId);
+
+      const updateData = { password_hash: newPassword };
+
+      let query = this.client.from("teams").update(updateData);
+      if (cleanEmail) {
+        query = query.eq("email", cleanEmail);
+      } else if (isUuid) {
+        query = query.eq("id", teamId);
+      } else {
+        return null;
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.warn("Supabase resetPassword error:", error);
+      } else {
+        console.log("✅ Supabase password successfully updated for team:", cleanEmail || teamId);
+      }
       return { data, error };
     } catch (e) {
-      console.warn("Supabase resetPassword error:", e);
+      console.warn("Supabase resetPassword exception:", e);
       return null;
     }
+  }
+
+  async updateSessionToken(teamId, sessionToken, email = null, currentAvatar = null) {
+    if (!this.client) return null;
+    try {
+      const cleanEmail = email ? email.trim().toLowerCase() : null;
+      const isUuid = teamId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId);
+
+      // Attempt 1: Direct update to active_session_token column
+      let query = this.client.from("teams").update({ active_session_token: sessionToken });
+      if (cleanEmail) {
+        query = query.eq("email", cleanEmail);
+      } else if (isUuid) {
+        query = query.eq("id", teamId);
+      } else {
+        return null;
+      }
+
+      const { data, error } = await query;
+      if (!error) {
+        console.log("✅ Active session token updated in Supabase:", sessionToken ? "Active" : "Cleared");
+        return { data, error: null };
+      }
+
+      // If active_session_token column does not exist yet (PGRST204), fallback to avatar metadata encoding
+      if (error.code === 'PGRST204' || String(error.message || '').includes('active_session_token')) {
+        const baseAvatar = (currentAvatar || 'neon-wolf').split('|')[0];
+        const encodedAvatar = sessionToken ? `${baseAvatar}|sess:${sessionToken}` : baseAvatar;
+
+        let fallbackQuery = this.client.from("teams").update({ avatar: encodedAvatar });
+        if (cleanEmail) fallbackQuery = fallbackQuery.eq("email", cleanEmail);
+        else if (isUuid) fallbackQuery = fallbackQuery.eq("id", teamId);
+
+        const fbRes = await fallbackQuery;
+        console.log("⚡ Session token saved via avatar fallback:", sessionToken ? "Active" : "Cleared");
+        return fbRes;
+      }
+
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase updateSessionToken exception:", e);
+      return null;
+    }
+  }
+
+  async clearSessionToken(teamId, email = null, currentAvatar = null) {
+    return this.updateSessionToken(teamId, null, email, currentAvatar);
   }
 
   async updateRound(roundData) {

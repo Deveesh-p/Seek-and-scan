@@ -241,8 +241,11 @@
         </div>
 
         <div>
-          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM EMAIL *</label>
-          <input type="email" id="reg-email" required class="cyber-input" placeholder="team@domain.com">
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-mono text-gray-400">TEAM EMAIL *</label>
+            <span class="text-[10px] font-mono text-emerald-400 font-semibold">@gmail.com or @kongu.edu only</span>
+          </div>
+          <input type="email" id="reg-email" required class="cyber-input font-mono text-xs" placeholder="e.g. yourname@gmail.com or rollno@kongu.edu">
         </div>
 
         <div>
@@ -772,32 +775,56 @@
         </button>
       </div>
 
-      <!-- TAB 1: RESET PASSWORD FORM -->
-      <form id="form-rec-password" onsubmit="window.app.handlePasswordReset(event)" class="space-y-3 pt-1">
-        <div>
-          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM EMAIL OR TEAM NAME *</label>
-          <input type="text" id="rec-pass-id" required class="cyber-input text-xs" placeholder="e.g. team@email.com or Cyber Ninjas">
-        </div>
+      <!-- TAB 1: RESET PASSWORD (2-STEP 6-DIGIT OTP FLOW) -->
+      <div id="rec-pass-wrapper" class="space-y-3 pt-1">
+        <!-- STEP 1: ENTER REGISTERED EMAIL & SEND OTP -->
+        <form id="form-rec-step1" onsubmit="window.app.handleSendRecoveryOTP(event)" class="space-y-3">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs font-mono text-gray-400">REGISTERED TEAM EMAIL *</label>
+              <span class="text-[10px] font-mono text-emerald-400">@gmail.com or @kongu.edu</span>
+            </div>
+            <input type="email" id="rec-pass-email" required class="cyber-input text-xs font-mono" placeholder="yourname@gmail.com or rollno@kongu.edu">
+            <p class="text-[10px] text-gray-500 font-mono mt-1">
+              🛡️ A secure 6-digit verification OTP will be sent to this email address.
+            </p>
+          </div>
 
-        <div>
-          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM LEADER'S NAME (FOR VERIFICATION) *</label>
-          <input type="text" id="rec-pass-leader" required class="cyber-input text-xs" placeholder="e.g. Alex Chen">
-        </div>
+          <button type="submit" id="btn-send-otp" class="btn-cyber w-full py-2.5 mt-2">
+            <i data-lucide="send" class="w-4 h-4"></i> Send Verification OTP
+          </button>
+        </form>
 
-        <div>
-          <label class="block text-xs font-mono text-gray-400 mb-1">NEW PASSWORD *</label>
-          <input type="password" id="rec-pass-new" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Enter new secret password">
-        </div>
+        <!-- STEP 2: VERIFY OTP & SAVE NEW PASSWORD (Initially Hidden) -->
+        <form id="form-rec-step2" onsubmit="window.app.handleVerifyOTPAndResetPassword(event)" class="space-y-3 hidden">
+          <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono flex items-center justify-between">
+            <span class="truncate">OTP sent to: <strong id="rec-target-email" class="text-white"></strong></span>
+            <button type="button" onclick="window.app.resetRecoveryForm()" class="text-[10px] text-amber-400 hover:underline shrink-0 ml-2">Change Email</button>
+          </div>
 
-        <div>
-          <label class="block text-xs font-mono text-gray-400 mb-1">CONFIRM NEW PASSWORD *</label>
-          <input type="password" id="rec-pass-confirm" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Re-enter new secret password">
-        </div>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs font-mono text-gray-400">6-DIGIT VERIFICATION OTP *</label>
+              <button type="button" onclick="window.app.handleResendOTP()" class="text-[10px] font-mono text-emerald-400 hover:underline">Resend Code</button>
+            </div>
+            <input type="text" id="rec-pass-otp" required maxlength="6" pattern="[0-9]{6}" class="cyber-input text-center tracking-[0.5em] font-mono text-base font-bold text-neon" placeholder="123456" autocomplete="one-time-code">
+          </div>
 
-        <button type="submit" class="btn-cyber w-full py-2.5 mt-2">
-          <i data-lucide="check" class="w-4 h-4"></i> Update &amp; Save New Password
-        </button>
-      </form>
+          <div>
+            <label class="block text-xs font-mono text-gray-400 mb-1">NEW SECRET PASSWORD *</label>
+            <input type="password" id="rec-pass-new" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Enter new secret password">
+          </div>
+
+          <div>
+            <label class="block text-xs font-mono text-gray-400 mb-1">CONFIRM NEW PASSWORD *</label>
+            <input type="password" id="rec-pass-confirm" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Re-enter new secret password">
+          </div>
+
+          <button type="submit" id="btn-save-new-pass" class="btn-cyber w-full py-2.5 mt-2">
+            <i data-lucide="shield-check" class="w-4 h-4"></i> Verify OTP &amp; Save New Password
+          </button>
+        </form>
+      </div>
 
       <!-- TAB 2: FIND EMAIL FORM -->
       <form id="form-rec-email" onsubmit="window.app.handleEmailLookup(event)" class="space-y-3 pt-1 hidden">
@@ -823,6 +850,62 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       SINGLE-DEVICE SESSION CONFLICT MODAL (HOTSTAR / JIO STYLE)
+       ======================================================================== -->
+  <div id="modal-session-conflict" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="cyber-card max-w-md w-full p-6 space-y-4 border-amber-500/60 shadow-[0_0_40px_rgba(245,158,11,0.25)] relative text-center">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-center text-amber-400">
+        <i data-lucide="smartphone" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 class="font-cyber font-bold text-white text-lg tracking-wide">ACCOUNT ACTIVE ON ANOTHER DEVICE</h3>
+        <p class="text-xs font-mono text-gray-300 mt-2 leading-relaxed">
+          Your team account (<span id="conflict-team-name" class="text-amber-400 font-bold"></span>) is currently signed in on another device.
+        </p>
+        <p class="text-[11px] font-mono text-gray-400 mt-1">
+          In accordance with tournament fair-play regulations, accounts can only be active on one device at a time.
+        </p>
+      </div>
+      <div class="p-3 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs font-mono">
+        Would you like to log out of the other device and continue playing on this device?
+      </div>
+      <div class="space-y-2 pt-2">
+        <button type="button" onclick="window.app.handleConfirmTakeover()" class="btn-cyber w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold">
+          <i data-lucide="log-out" class="w-4 h-4"></i> Log Out Other Device &amp; Continue Here
+        </button>
+        <button type="button" onclick="window.app.closeSessionConflictModal()" class="w-full py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white font-mono text-xs transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       SINGLE-DEVICE SESSION TERMINATED MODAL (DEVICE 1 NOTICE)
+       ======================================================================== -->
+  <div id="modal-session-terminated" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 hidden">
+    <div class="cyber-card max-w-md w-full p-6 space-y-4 border-red-500/60 shadow-[0_0_40px_rgba(239,68,68,0.25)] relative text-center">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-red-500/10 border border-red-500/40 flex items-center justify-center text-red-400">
+        <i data-lucide="shield-alert" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 class="font-cyber font-bold text-white text-lg tracking-wide text-red-400">SESSION TERMINATED</h3>
+        <p class="text-xs font-mono text-gray-300 mt-2 leading-relaxed">
+          You have been logged out because your team account was signed in on another device.
+        </p>
+        <p class="text-[11px] font-mono text-gray-400 mt-1">
+          Under tournament rules, only one device may be actively logged into a team account at any moment.
+        </p>
+      </div>
+      <div class="pt-2">
+        <button type="button" onclick="window.app.closeSessionTerminatedModal()" class="btn-cyber w-full py-3">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Return to Sign In
+        </button>
+      </div>
     </div>
   </div>
 

@@ -354,9 +354,33 @@ class GameStore {
   }
 
   // --- Auth & Session ---
+  isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const clean = email.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(clean)) return false;
+
+    // Strict Domain Restriction: Google (@gmail.com, @googlemail.com) or Kongu College (@kongu.edu, @*.kongu.edu, @kongu.ac.in)
+    const isGoogle = clean.endsWith('@gmail.com') || clean.endsWith('@googlemail.com');
+    const isKongu = clean.endsWith('@kongu.edu') || clean.endsWith('.kongu.edu') || clean.includes('@kongu.edu') || clean.endsWith('@kongu.ac.in');
+    return isGoogle || isKongu;
+  }
+
+  cleanAvatar(avatar) {
+    if (!avatar) return 'neon-wolf';
+    return avatar.split('|')[0] || 'neon-wolf';
+  }
+
   registerTeam({ name, leader_name, members, email, password, avatar }) {
+    // Validate email domain restriction: Google (@gmail.com) or Kongu (@kongu.edu)
+    if (!this.isValidEmail(email)) {
+      throw new Error("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!");
+    }
+
     // Check if name or email exists
-    const exists = this.teams.find(t => t.email.toLowerCase() === email.toLowerCase() || t.name.toLowerCase() === name.toLowerCase());
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim().toLowerCase();
+    const exists = this.teams.find(t => (t.email && t.email.toLowerCase() === cleanEmail) || (t.name && t.name.toLowerCase() === cleanName));
     if (exists) {
       throw new Error("A team with this name or email already exists!");
     }
@@ -386,9 +410,9 @@ class GameStore {
       name: name.trim(),
       leader_name: leader_name.trim(),
       members: members.trim(),
-      email: email.trim(),
+      email: cleanEmail,
       password: password,
-      avatar: avatar || 'neon-wolf',
+      avatar: this.cleanAvatar(avatar) || 'neon-wolf',
       role: 'team',
       access_code: generatedCode, // Unique code saved for admin desk dispatch
       is_approved: false,         // NOT auto-approved! Admin gives code on event day
@@ -401,6 +425,7 @@ class GameStore {
       is_disqualified: false,
       disqualification_reason: null,
       disqualified_at: null,
+      active_session_token: null,  // Single device active session tracker
       created_at: new Date().toISOString()
     };
 
@@ -433,7 +458,7 @@ class GameStore {
     return count;
   }
 
-  loginTeam(email, password, accessCode = null) {
+  loginTeam(email, password, accessCode = null, sessionToken = null, forceLogoutOther = false) {
     const cleanEmail = email.trim().toLowerCase();
     
     // Check Admin login
@@ -460,9 +485,20 @@ class GameStore {
     }
 
     // Normal team login
-    const team = this.teams.find(t => t.email.toLowerCase() === cleanEmail && t.password === password);
+    const team = this.teams.find(t => t.email && t.email.toLowerCase() === cleanEmail && t.password === password);
     if (!team || team.role === 'deleted' || team.is_deleted) {
       throw new Error("Invalid team email or password.");
+    }
+
+    // SINGLE ACTIVE DEVICE SESSION CHECK (Hotstar / JioCinema style)
+    const existingSession = team.active_session_token || (team.avatar && team.avatar.includes('|sess:') ? team.avatar.split('|sess:')[1] : null);
+    if (existingSession && sessionToken && existingSession !== sessionToken && !forceLogoutOther) {
+      return {
+        requiresConfirmation: true,
+        code: 'ACTIVE_ON_ANOTHER_DEVICE',
+        team: team,
+        activeSession: existingSession
+      };
     }
 
     if (!team.access_code) {
@@ -483,6 +519,18 @@ class GameStore {
       }
     }
 
+    // Register active device session token
+    const finalSessionToken = sessionToken || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+    team.active_session_token = finalSessionToken;
+    try {
+      localStorage.setItem('seek_scan_device_session', finalSessionToken);
+    } catch (e) {}
+
+    // Synchronize active session token with Supabase
+    if (window.supabaseClient) {
+      window.supabaseClient.updateSessionToken(team.id, finalSessionToken, team.email, team.avatar);
+    }
+
     team.station_unlocked = false;
     this.currentTeam = team;
     this.isAdmin = team.role === 'admin';
@@ -491,36 +539,52 @@ class GameStore {
   }
 
   logout() {
+    if (this.currentTeam && this.currentTeam.role !== 'admin') {
+      if (window.supabaseClient) {
+        window.supabaseClient.clearSessionToken(this.currentTeam.id, this.currentTeam.email, this.currentTeam.avatar);
+      }
+      this.currentTeam.active_session_token = null;
+      this.updateTeam(this.currentTeam);
+    }
+    try {
+      localStorage.removeItem('seek_scan_device_session');
+    } catch (e) {}
     this.currentTeam = null;
     this.isAdmin = false;
     localStorage.removeItem('seek_scan_session');
   }
 
-  // --- Password & Email Recovery ---
-  resetPassword(identifier, leaderName, newPassword) {
+  // --- Password & Email Recovery (Supports 6-Digit OTP Flow & Direct Cloud Persistence) ---
+  async resetPassword(identifier, leaderOrNewPass, newPassVal = null) {
     const cleanId = (identifier || "").trim().toLowerCase();
-    const cleanLeader = (leaderName || "").trim().toLowerCase();
+    const newPassword = newPassVal !== null ? newPassVal : leaderOrNewPass;
 
     // Find team by email or team name
-    const team = this.teams.find(t => {
-      const matchId = (t.email && t.email.toLowerCase() === cleanId) || (t.name && t.name.toLowerCase() === cleanId);
-      if (!matchId) return false;
-      if (cleanLeader) {
-        return t.leader_name && (t.leader_name.toLowerCase().includes(cleanLeader) || cleanLeader.includes(t.leader_name.toLowerCase()));
-      }
-      return true;
-    });
+    let team = this.teams.find(t => 
+      (t.email && t.email.toLowerCase() === cleanId) || 
+      (t.name && t.name.toLowerCase() === cleanId)
+    );
+
+    // If not found in local memory, sync live teams from Supabase
+    if (!team && window.supabaseClient) {
+      await this.syncLiveTeamsFromSupabase();
+      team = this.teams.find(t => 
+        (t.email && t.email.toLowerCase() === cleanId) || 
+        (t.name && t.name.toLowerCase() === cleanId)
+      );
+    }
 
     if (!team) {
-      throw new Error("No registered team matched those verification details. Please verify your Email/Team Name and Leader Name.");
+      throw new Error("No registered team found with email or name: " + identifier);
     }
 
     team.password = newPassword;
+    team.active_session_token = null; // Invalidate any previous session
     this.updateTeam(team);
 
-    // Push reset password to Supabase directly
-    if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-      window.supabaseClient.resetPassword(team.id, newPassword);
+    // Push updated password directly to Supabase targeting email
+    if (window.supabaseClient && (typeof window.supabaseClient.isConfigured === 'function' ? window.supabaseClient.isConfigured() : true)) {
+      await window.supabaseClient.resetPassword(team.id, newPassword, team.email);
     }
 
     return team;
@@ -1268,6 +1332,9 @@ class GameStore {
             (this.currentTeam.email && remoteTeam.email && this.currentTeam.email.toLowerCase() === remoteTeam.email.toLowerCase())
           );
 
+          const remoteSessionToken = remoteTeam.active_session_token || (remoteTeam.avatar && remoteTeam.avatar.includes('|sess:') ? remoteTeam.avatar.split('|sess:')[1] : null);
+          const cleanRemoteAvatar = this.cleanAvatar(remoteTeam.avatar);
+
           if (localIndex !== -1) {
             const local = this.teams[localIndex];
             // If current playing team on this device, don't regress active in-memory gameplay score
@@ -1284,13 +1351,14 @@ class GameStore {
               members: remoteTeam.members,
               email: remoteTeam.email,
               password: remoteTeam.password_hash || local.password,
-              avatar: remoteTeam.avatar || local.avatar || 'neon-wolf',
+              avatar: cleanRemoteAvatar || local.avatar || 'neon-wolf',
               role: remoteTeam.role || 'team',
               access_code: remoteTeam.access_code || local.access_code,
               is_approved: Boolean(remoteTeam.is_approved),
               is_disqualified: Boolean(remoteTeam.is_disqualified),
               disqualification_reason: remoteTeam.disqualification_reason,
               disqualified_at: remoteTeam.disqualified_at,
+              active_session_token: remoteSessionToken,
               created_at: remoteTeam.created_at || local.created_at,
               score: scoreToUse,
               current_round: roundToUse,
@@ -1298,6 +1366,10 @@ class GameStore {
               elapsed_seconds: isCurrentActive ? (local.elapsed_seconds || remoteElapsed) : remoteElapsed,
               is_completed: completedToUse
             };
+
+            if (isCurrentActive && this.currentTeam) {
+              this.currentTeam.active_session_token = remoteSessionToken;
+            }
           } else {
             this.teams.push({
               id: remoteTeam.id,
@@ -1306,13 +1378,14 @@ class GameStore {
               members: remoteTeam.members,
               email: remoteTeam.email,
               password: remoteTeam.password_hash,
-              avatar: remoteTeam.avatar || 'neon-wolf',
+              avatar: cleanRemoteAvatar || 'neon-wolf',
               role: remoteTeam.role || 'team',
               access_code: remoteTeam.access_code,
               is_approved: Boolean(remoteTeam.is_approved),
               is_disqualified: Boolean(remoteTeam.is_disqualified),
               disqualification_reason: remoteTeam.disqualification_reason,
               disqualified_at: remoteTeam.disqualified_at,
+              active_session_token: remoteSessionToken,
               created_at: remoteTeam.created_at,
               current_round: remoteRound,
               questions_solved: remoteSolved,

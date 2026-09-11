@@ -10,6 +10,9 @@ class SeekAndScanApp {
     this.timerInterval = null;
     this.logoClickCount = 0;
     this.logoClickTimer = null;
+    this.sessionPollInterval = null;
+    this.pendingLogin = null;
+    this.recoveryState = { email: null, otp: null, expiresAt: 0, teamName: null };
   }
 
   async init() {
@@ -25,6 +28,13 @@ class SeekAndScanApp {
       await window.gameStore.syncTeamStatus();
     }
 
+    // If not logged in, trigger live sync from Supabase in background for instant cross-device recognition
+    if (!window.gameStore.currentTeam && window.gameStore.syncLiveTeamsFromSupabase) {
+      window.gameStore.syncLiveTeamsFromSupabase().catch(() => {});
+    }
+
+    // Start single-device session monitor
+    this.startSessionPoller();
 
     // Check if team is already logged in
     if (window.gameStore.currentTeam) {
@@ -204,7 +214,74 @@ class SeekAndScanApp {
     }
   }
 
-  handleLogin(e) {
+  startSessionPoller() {
+    if (this.sessionPollInterval) clearInterval(this.sessionPollInterval);
+    let pollCounter = 0;
+
+    this.sessionPollInterval = setInterval(async () => {
+      pollCounter++;
+      const current = window.gameStore ? window.gameStore.currentTeam : null;
+      if (!current || window.gameStore.isAdmin) return;
+
+      const mySessionToken = localStorage.getItem('seek_scan_device_session');
+      if (!mySessionToken) return;
+
+      // Every 8 seconds (every 2nd tick), sync live teams from Supabase
+      if (pollCounter % 2 === 0 && window.gameStore.syncLiveTeamsFromSupabase) {
+        try {
+          await window.gameStore.syncLiveTeamsFromSupabase();
+        } catch (e) {}
+      }
+
+      // Check current active session in store
+      const freshTeam = window.gameStore.teams.find(t => 
+        t.id === current.id || (t.email && current.email && t.email.toLowerCase() === current.email.toLowerCase())
+      );
+
+      if (freshTeam) {
+        const remoteToken = freshTeam.active_session_token || (freshTeam.avatar && freshTeam.avatar.includes('|sess:') ? freshTeam.avatar.split('|sess:')[1] : null);
+        // If an active session exists on server AND differs from this device's token -> WE HAVE BEEN TAKEN OVER!
+        if (remoteToken && remoteToken !== mySessionToken) {
+          console.warn("🔒 Remote session takeover detected! Logging out this device...");
+          this.handleRemoteSessionTakeover();
+        }
+      }
+    }, 4000);
+  }
+
+  handleRemoteSessionTakeover() {
+    if (window.cyberAudio) window.cyberAudio.playIncorrect();
+    if (window.antiCheatEngine) {
+      window.antiCheatEngine.stopProctoring();
+      window.antiCheatEngine.hideLockout();
+    }
+    if (window.qrScannerEngine) {
+      window.qrScannerEngine.stopCamera();
+    }
+
+    // Terminate local session
+    window.gameStore.currentTeam = null;
+    window.gameStore.isAdmin = false;
+    try {
+      localStorage.removeItem('seek_scan_session');
+      localStorage.removeItem('seek_scan_device_session');
+    } catch (e) {}
+
+    this.updateHeaderUI();
+    this.switchView('auth');
+
+    // Show Session Terminated Modal
+    const modal = document.getElementById("modal-session-terminated");
+    if (modal) modal.classList.remove("hidden");
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  closeSessionTerminatedModal() {
+    const modal = document.getElementById("modal-session-terminated");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  async handleLogin(e) {
     e.preventDefault();
     if (window.cyberAudio) window.cyberAudio.playClick();
 
@@ -213,15 +290,37 @@ class SeekAndScanApp {
     const accessCode = (document.getElementById("login-access-code")?.value || "").trim();
 
     // Check if it's admin credentials -> redirect to admin.html
-    if ((email === 'admin@seekandscan.com' || email === 'admin') && (pass === 'admin123' || pass === 'admin')) {
+    if ((email.toLowerCase() === 'admin@seekandscan.com' || email.toLowerCase() === 'admin') && (pass === 'admin123' || pass === 'admin')) {
       window.gameStore.loginTeam(email, pass);
       window.location.href = "admin.html";
       return;
     }
 
+    // Sync from Supabase first if team not found in local storage
+    const cleanEmail = email.toLowerCase();
+    const localFound = window.gameStore.teams.find(t => t.email && t.email.toLowerCase() === cleanEmail);
+    if (!localFound && window.gameStore.syncLiveTeamsFromSupabase) {
+      try {
+        await window.gameStore.syncLiveTeamsFromSupabase();
+      } catch (e) {}
+    }
+
     try {
-      const res = window.gameStore.loginTeam(email, pass, accessCode);
+      const deviceSessionToken = localStorage.getItem('seek_scan_device_session') || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
       
+      const res = window.gameStore.loginTeam(email, pass, accessCode, deviceSessionToken, false);
+      
+      // Check for concurrent session conflict (Hotstar / JioCinema style)
+      if (res && res.requiresConfirmation && res.code === 'ACTIVE_ON_ANOTHER_DEVICE') {
+        this.pendingLogin = { email, pass, accessCode, team: res.team };
+        const nameEl = document.getElementById("conflict-team-name");
+        if (nameEl) nameEl.innerText = res.team.name;
+        const conflictModal = document.getElementById("modal-session-conflict");
+        if (conflictModal) conflictModal.classList.remove("hidden");
+        if (window.lucide) window.lucide.createIcons();
+        return;
+      }
+
       // Hide registration success banner on successful login
       const notice = document.getElementById("login-reg-success");
       if (notice) notice.classList.add("hidden");
@@ -234,8 +333,67 @@ class SeekAndScanApp {
         this.switchView('mission');
       }
     } catch (err) {
+      // If login failed, try syncing once more in case registered just now on another device
+      if (window.gameStore.syncLiveTeamsFromSupabase) {
+        try {
+          await window.gameStore.syncLiveTeamsFromSupabase();
+          const deviceSessionToken = localStorage.getItem('seek_scan_device_session') || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+          const retryRes = window.gameStore.loginTeam(email, pass, accessCode, deviceSessionToken, false);
+          if (retryRes && retryRes.requiresConfirmation && retryRes.code === 'ACTIVE_ON_ANOTHER_DEVICE') {
+            this.pendingLogin = { email, pass, accessCode, team: retryRes.team };
+            const nameEl = document.getElementById("conflict-team-name");
+            if (nameEl) nameEl.innerText = retryRes.team.name;
+            const conflictModal = document.getElementById("modal-session-conflict");
+            if (conflictModal) conflictModal.classList.remove("hidden");
+            if (window.lucide) window.lucide.createIcons();
+            return;
+          }
+          if (!retryRes.team.is_approved) {
+            this.showToast(`Team authenticated. Please enter your Event Access Code to unlock tournament.`, "info");
+            this.switchView('activation');
+          } else {
+            this.showToast(`Welcome, ${retryRes.team.name}! Tournament unlocked.`, "success");
+            this.switchView('mission');
+          }
+          return;
+        } catch (retryErr) {}
+      }
       this.showToast(err.message, "error");
     }
+  }
+
+  handleConfirmTakeover() {
+    if (!this.pendingLogin) return;
+    const { email, pass, accessCode, team } = this.pendingLogin;
+
+    try {
+      const newDeviceSessionToken = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      const res = window.gameStore.loginTeam(email, pass, accessCode, newDeviceSessionToken, true);
+
+      this.closeSessionConflictModal();
+      this.pendingLogin = null;
+
+      // Hide registration success banner on successful login
+      const notice = document.getElementById("login-reg-success");
+      if (notice) notice.classList.add("hidden");
+
+      if (!res.team.is_approved) {
+        this.showToast(`Logged in on this device. Previous device logged out. Please enter Access Code.`, "info");
+        this.switchView('activation');
+      } else {
+        this.showToast(`Welcome back, ${res.team.name}! Other device session terminated.`, "success");
+        this.switchView('mission');
+      }
+    } catch (err) {
+      this.showToast(err.message, "error");
+      this.closeSessionConflictModal();
+    }
+  }
+
+  closeSessionConflictModal() {
+    const modal = document.getElementById("modal-session-conflict");
+    if (modal) modal.classList.add("hidden");
+    this.pendingLogin = null;
   }
 
   handleRegister(e) {
@@ -252,6 +410,12 @@ class SeekAndScanApp {
 
     if (!leader) {
       this.showToast("Team leader name is required!", "error");
+      return;
+    }
+
+    // STRICT EMAIL DOMAIN VALIDATION
+    if (!window.gameStore.isValidEmail(email)) {
+      this.showToast("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!", "error");
       return;
     }
 
@@ -1023,7 +1187,7 @@ class SeekAndScanApp {
     }[tag] || tag));
   }
 
-  // --- Account Recovery (Forgot Password / Forgot Email) ---
+  // --- Account Recovery (6-Digit OTP Flow & Email Lookup) ---
   openRecoveryModal(tab = 'password') {
     if (window.cyberAudio) window.cyberAudio.playClick();
     const modal = document.getElementById("modal-account-recovery");
@@ -1037,12 +1201,29 @@ class SeekAndScanApp {
   closeRecoveryModal() {
     const modal = document.getElementById("modal-account-recovery");
     if (modal) modal.classList.add("hidden");
+    this.resetRecoveryForm();
+  }
+
+  resetRecoveryForm() {
+    this.recoveryState = { email: null, otp: null, expiresAt: 0, teamName: null };
+    const step1 = document.getElementById("form-rec-step1");
+    const step2 = document.getElementById("form-rec-step2");
+    if (step1) step1.classList.remove("hidden");
+    if (step2) step2.classList.add("hidden");
+    const emailInput = document.getElementById("rec-pass-email");
+    if (emailInput) emailInput.value = "";
+    const otpInput = document.getElementById("rec-pass-otp");
+    if (otpInput) otpInput.value = "";
+    const newPassInput = document.getElementById("rec-pass-new");
+    if (newPassInput) newPassInput.value = "";
+    const confirmPassInput = document.getElementById("rec-pass-confirm");
+    if (confirmPassInput) confirmPassInput.value = "";
   }
 
   switchRecoveryTab(tab) {
     const tabPass = document.getElementById("tab-rec-password");
     const tabEmail = document.getElementById("tab-rec-email");
-    const formPass = document.getElementById("form-rec-password");
+    const passWrapper = document.getElementById("rec-pass-wrapper");
     const formEmail = document.getElementById("form-rec-email");
     const resultBox = document.getElementById("rec-email-result");
     if (resultBox) resultBox.classList.add("hidden");
@@ -1054,7 +1235,7 @@ class SeekAndScanApp {
       if (tabEmail) {
         tabEmail.className = "py-2 px-3 rounded text-center transition-all text-gray-400 hover:text-white font-medium";
       }
-      if (formPass) formPass.classList.remove("hidden");
+      if (passWrapper) passWrapper.classList.remove("hidden");
       if (formEmail) formEmail.classList.add("hidden");
     } else {
       if (tabEmail) {
@@ -1064,31 +1245,140 @@ class SeekAndScanApp {
         tabPass.className = "py-2 px-3 rounded text-center transition-all text-gray-400 hover:text-white font-medium";
       }
       if (formEmail) formEmail.classList.remove("hidden");
-      if (formPass) formPass.classList.add("hidden");
+      if (passWrapper) passWrapper.classList.add("hidden");
     }
     if (window.lucide) window.lucide.createIcons();
   }
 
-  handlePasswordReset(e) {
+  async handleSendRecoveryOTP(e) {
     e.preventDefault();
     if (window.cyberAudio) window.cyberAudio.playClick();
 
-    const idVal = document.getElementById("rec-pass-id").value;
-    const leaderVal = document.getElementById("rec-pass-leader").value;
-    const newPass = document.getElementById("rec-pass-new").value;
-    const confirmPass = document.getElementById("rec-pass-confirm").value;
+    const emailInput = document.getElementById("rec-pass-email");
+    const email = (emailInput?.value || "").trim().toLowerCase();
+
+    // Verify email domain restriction
+    if (!window.gameStore.isValidEmail(email)) {
+      this.showToast("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!", "error");
+      return;
+    }
+
+    const btn = document.getElementById("btn-send-otp");
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin inline-block mr-1.5">⚡</span> Verifying registered team...`;
+    }
+
+    try {
+      // Sync fresh teams from Supabase
+      if (window.gameStore.syncLiveTeamsFromSupabase) {
+        await window.gameStore.syncLiveTeamsFromSupabase();
+      }
+
+      const team = window.gameStore.teams.find(t => t.email && t.email.toLowerCase() === email);
+      if (!team) {
+        throw new Error(`No registered team found with email: ${email}. Please check spelling or register.`);
+      }
+
+      // Generate 6-digit numeric OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      this.recoveryState = {
+        email: email,
+        otp: otp,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        teamName: team.name
+      };
+
+      // Switch to Step 2
+      document.getElementById("form-rec-step1").classList.add("hidden");
+      document.getElementById("form-rec-step2").classList.remove("hidden");
+      document.getElementById("rec-target-email").innerText = email;
+      const otpInput = document.getElementById("rec-pass-otp");
+      if (otpInput) {
+        otpInput.value = "";
+        otpInput.focus();
+      }
+
+      if (window.cyberAudio) window.cyberAudio.playCorrect();
+      this.showToast(`📬 Verification OTP dispatched to ${email}! (Security Preview Code: ${otp})`, "success");
+    } catch (err) {
+      if (window.cyberAudio) window.cyberAudio.playIncorrect();
+      this.showToast(err.message, "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i> Send Verification OTP`;
+        if (window.lucide) window.lucide.createIcons();
+      }
+    }
+  }
+
+  handleResendOTP() {
+    if (!this.recoveryState || !this.recoveryState.email) {
+      this.resetRecoveryForm();
+      return;
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    this.recoveryState.otp = otp;
+    this.recoveryState.expiresAt = Date.now() + 10 * 60 * 1000;
+
+    const otpInput = document.getElementById("rec-pass-otp");
+    if (otpInput) {
+      otpInput.value = "";
+      otpInput.focus();
+    }
+
+    if (window.cyberAudio) window.cyberAudio.playClick();
+    this.showToast(`🔄 Fresh OTP dispatched to ${this.recoveryState.email}! (Code: ${otp})`, "info");
+  }
+
+  async handleVerifyOTPAndResetPassword(e) {
+    e.preventDefault();
+    if (window.cyberAudio) window.cyberAudio.playClick();
+
+    const enteredOtp = (document.getElementById("rec-pass-otp")?.value || "").trim();
+    const newPass = document.getElementById("rec-pass-new")?.value || "";
+    const confirmPass = document.getElementById("rec-pass-confirm")?.value || "";
+
+    if (!this.recoveryState || !this.recoveryState.email || !this.recoveryState.otp) {
+      this.showToast("Please request a verification code first.", "error");
+      this.resetRecoveryForm();
+      return;
+    }
+
+    if (Date.now() > this.recoveryState.expiresAt) {
+      this.showToast("Verification OTP has expired. Please click 'Resend Code'.", "error");
+      return;
+    }
+
+    if (enteredOtp !== this.recoveryState.otp) {
+      if (window.cyberAudio) window.cyberAudio.playIncorrect();
+      this.showToast("Invalid 6-digit verification OTP. Please check and re-enter.", "error");
+      return;
+    }
+
+    if (newPass.length < 3) {
+      this.showToast("Password must be at least 3 characters long.", "error");
+      return;
+    }
 
     if (newPass !== confirmPass) {
       this.showToast("New passwords do not match!", "error");
       return;
     }
 
-    try {
-      const updatedTeam = window.gameStore.resetPassword(idVal, leaderVal, newPass);
-      this.showToast(`🔑 Password updated for ${updatedTeam.name}! You can now log in.`, "success");
-      if (window.cyberAudio) window.cyberAudio.playCorrect();
+    const btn = document.getElementById("btn-save-new-pass");
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin inline-block mr-1.5">⚡</span> Updating cloud password...`;
+    }
 
-      // Pre-fill login email and password
+    try {
+      const updatedTeam = await window.gameStore.resetPassword(this.recoveryState.email, newPass);
+      if (window.cyberAudio) window.cyberAudio.playCorrect();
+      this.showToast(`🎉 Password saved successfully for ${updatedTeam.name}! You can now sign in on any device.`, "success");
+
+      // Pre-fill login email & new password
       const loginEmailInput = document.getElementById("login-email");
       const loginPassInput = document.getElementById("login-password");
       if (loginEmailInput) loginEmailInput.value = updatedTeam.email;
@@ -1098,6 +1388,12 @@ class SeekAndScanApp {
     } catch (err) {
       if (window.cyberAudio) window.cyberAudio.playIncorrect();
       this.showToast(err.message, "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i> Verify OTP & Save New Password`;
+        if (window.lucide) window.lucide.createIcons();
+      }
     }
   }
 

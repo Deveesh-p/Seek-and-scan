@@ -22,10 +22,11 @@ CREATE TABLE IF NOT EXISTS teams (
     is_disqualified BOOLEAN DEFAULT FALSE,
     disqualification_reason TEXT,
     disqualified_at TIMESTAMP WITH TIME ZONE,
+    active_session_token TEXT,         -- Hotstar-style single active device session token
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- If table already existed without access_code or is_approved, add them safely
+-- If table already existed without access_code, is_approved, or active_session_token, add them safely
 DO $$ 
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teams' AND column_name='access_code') THEN
@@ -33,6 +34,9 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teams' AND column_name='is_approved') THEN
         ALTER TABLE teams ADD COLUMN is_approved BOOLEAN DEFAULT FALSE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teams' AND column_name='active_session_token') THEN
+        ALTER TABLE teams ADD COLUMN active_session_token TEXT;
     END IF;
 END $$;
 

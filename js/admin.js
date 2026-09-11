@@ -1152,7 +1152,8 @@ class AdminPageController {
       'shadow-hawk': '🦅',
       'binary-skull': '💀'
     };
-    document.getElementById("team-studio-avatar").innerText = avatarMap[team.avatar] || '🐺';
+    const cleanAvatar = (team.avatar || '').split('|')[0];
+    document.getElementById("team-studio-avatar").innerText = avatarMap[cleanAvatar] || '🐺';
 
     this.renderTeamStudioRoundTabs();
     this.renderTeamStudio();
