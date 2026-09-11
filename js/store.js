@@ -1240,6 +1240,26 @@ class GameStore {
           }
         });
 
+        // Auto-heal real teams (Rani, Novam, Novax) if they were accidentally caught in soft-delete
+        const restoreList = ['sanjayp.25ece@kongu.edu', 'deveeshp.25ece@kongu.edu', 'ar@gmail.com'];
+        deletedRemote = deletedRemote.filter(remoteTeam => {
+          if (remoteTeam.email && restoreList.includes(remoteTeam.email.toLowerCase())) {
+            remoteTeam.role = 'team';
+            remoteTeam.disqualification_reason = null;
+            remoteTeam.is_disqualified = false;
+            activeRemote.push(remoteTeam);
+            if (window.supabaseClient && window.supabaseClient.client) {
+              window.supabaseClient.client.from("teams").update({
+                role: 'team',
+                disqualification_reason: null,
+                is_disqualified: false
+              }).eq("id", remoteTeam.id);
+            }
+            return false;
+          }
+          return true;
+        });
+
         // 1. Supabase is the single source of truth: populate deletedTeams strictly from remote deleted teams
         this.deletedTeams = deletedRemote.map(remoteTeam => ({
           id: remoteTeam.id,
