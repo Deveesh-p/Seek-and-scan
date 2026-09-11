@@ -85,12 +85,12 @@ class SeekAndScanApp {
   switchView(viewName) {
     this.currentView = viewName;
 
-    // If switching to leaderboard or auth, ensure the lockout modal is hidden so user can actually see the view!
-    if ((viewName === 'leaderboard' || viewName === 'auth') && window.antiCheatEngine) {
+    // If switching to completed or auth, ensure the lockout modal is hidden so user can actually see the view!
+    if ((viewName === 'completed' || viewName === 'auth') && window.antiCheatEngine) {
       window.antiCheatEngine.hideLockout();
     }
 
-    const views = ['auth', 'activation', 'mission', 'challenge', 'leaderboard'];
+    const views = ['auth', 'activation', 'mission', 'challenge', 'completed'];
     views.forEach(v => {
       const el = document.getElementById(`view-${v}`);
       if (el) el.classList.add('hidden');
@@ -101,7 +101,7 @@ class SeekAndScanApp {
       activeEl.classList.remove('hidden');
     }
 
-    // Stop proctoring if outside active station challenge (mission hub briefing, auth, activation, leaderboard) or if tournament is finished
+    // Stop proctoring if outside active station challenge (mission hub briefing, auth, activation, completed) or if tournament is finished
     const isFinished = window.gameStore && typeof window.gameStore.isTeamTournamentCompleted === 'function' && window.gameStore.isTeamTournamentCompleted();
     if ((viewName !== 'challenge' || isFinished) && window.antiCheatEngine) {
       window.antiCheatEngine.stopProctoring();
@@ -118,8 +118,8 @@ class SeekAndScanApp {
       if (window.antiCheatEngine && !isFinished) {
         window.antiCheatEngine.startProctoring();
       }
-    } else if (viewName === 'leaderboard') {
-      this.renderLeaderboard();
+    } else if (viewName === 'completed') {
+      this.renderCompletedView();
     }
 
     this.updateHeaderUI();
@@ -491,12 +491,12 @@ class SeekAndScanApp {
       return;
     }
 
-    // If tournament is already completed, redirect to leaderboard and stop proctoring
+    // If tournament is already completed, redirect to completed view and stop proctoring
     if (team.is_completed || (window.gameStore && typeof window.gameStore.isTeamTournamentCompleted === 'function' && window.gameStore.isTeamTournamentCompleted(team))) {
       if (window.antiCheatEngine) {
         window.antiCheatEngine.stopProctoring();
       }
-      this.switchView('leaderboard');
+      this.switchView('completed');
       return;
     }
 
@@ -905,7 +905,7 @@ class SeekAndScanApp {
         }
         this.showToast("🏆 TOURNAMENT CONQUERED! All 3 Stations Completed.", "success");
         this.fireCelebrationConfetti();
-        this.switchView('leaderboard');
+        this.switchView('completed');
       } else {
         this.showToast(`🎉 Round ${res.newRound} Unlocked! Find and scan Station #${res.newRound} QR code.`, "success");
         this.switchView('mission');
@@ -927,151 +927,54 @@ class SeekAndScanApp {
     }
   }
 
-  viewLeaderboardFromLockout() {
-    if (window.cyberAudio) window.cyberAudio.playClick();
-    if (window.antiCheatEngine) {
-      window.antiCheatEngine.hideLockout();
-    }
-    this.switchView('leaderboard');
-  }
-
-  returnFromLeaderboard() {
-    if (window.cyberAudio) window.cyberAudio.playClick();
-    const team = window.gameStore.currentTeam;
-    if (!team) {
+  // --- Tournament Completed View ---
+  renderCompletedView() {
+    const currentTeam = window.gameStore.currentTeam;
+    if (!currentTeam) {
       this.switchView('auth');
       return;
     }
-    if (team.is_disqualified) {
-      if (window.antiCheatEngine) {
-        window.antiCheatEngine.triggerLockout(team.disqualification_reason || "Security protocol breach.");
-      }
-      return;
-    }
-    if (team.is_approved) {
-      this.switchView('mission');
-    } else {
-      this.switchView('activation');
-    }
-  }
-
-  // --- Leaderboard View ---
-  renderLeaderboard() {
-    const container = document.getElementById("leaderboard-table-body");
-    if (!container) return;
 
     // Check if current logged-in team was deleted by Admin
-    const currentTeam = window.gameStore.currentTeam;
-    if (currentTeam && (
-      currentTeam.role === 'deleted' || 
-      currentTeam.is_deleted || 
-      (window.gameStore.deletedTeams || []).some(d => 
-        (d.id && d.id === currentTeam.id) || 
-        (d.email && currentTeam.email && d.email.toLowerCase() === currentTeam.email.toLowerCase()) ||
-        (d.name && currentTeam.name && d.name.toLowerCase() === currentTeam.name.toLowerCase())
-      )
-    )) {
+    if (currentTeam.role === 'deleted' || 
+        currentTeam.is_deleted || 
+        (window.gameStore.deletedTeams || []).some(d => 
+          (d.id && d.id === currentTeam.id) || 
+          (d.email && currentTeam.email && d.email.toLowerCase() === currentTeam.email.toLowerCase()) ||
+          (d.name && currentTeam.name && d.name.toLowerCase() === currentTeam.name.toLowerCase())
+        )) {
       this.logout();
       this.showToast("Your team registration was removed by tournament administration.", "warning");
       return;
     }
 
-    // Disqualification notice banner handling
-    const disqNotice = document.getElementById("leaderboard-disqualified-notice");
-    if (disqNotice) {
-      if (currentTeam && currentTeam.is_disqualified) {
-        disqNotice.classList.remove("hidden");
-        const reasonEl = document.getElementById("leaderboard-disq-reason");
-        if (reasonEl) {
-          reasonEl.innerText = currentTeam.disqualification_reason || "Security protocol breach.";
+    const nameEl = document.getElementById("completed-team-name");
+    if (nameEl) nameEl.innerText = `Congratulations, ${currentTeam.name}!`;
+
+    const metaEl = document.getElementById("completed-team-meta");
+    if (metaEl) {
+      metaEl.innerText = `Leader: ${currentTeam.leader_name || '--'} • Members: ${currentTeam.members || '--'}`;
+    }
+
+    const scoreEl = document.getElementById("completed-score");
+    if (scoreEl) scoreEl.innerText = `${currentTeam.score || 0} pts`;
+
+    const timeEl = document.getElementById("completed-time");
+    if (timeEl) timeEl.innerText = this.formatTime(currentTeam.elapsed_seconds || 0);
+
+    // Sync latest status from server in background if available
+    if (window.gameStore && window.gameStore.syncTeamStatus && !this._isCompletedSyncing) {
+      this._isCompletedSyncing = true;
+      window.gameStore.syncTeamStatus().then(updated => {
+        this._isCompletedSyncing = false;
+        if (updated) {
+          if (scoreEl) scoreEl.innerText = `${updated.score || 0} pts`;
+          if (timeEl) timeEl.innerText = this.formatTime(updated.elapsed_seconds || 0);
         }
-      } else {
-        disqNotice.classList.add("hidden");
-      }
-    }
-
-    // Update Back button text based on team status
-    const backBtn = document.getElementById("leaderboard-back-btn");
-    if (backBtn) {
-      if (currentTeam && currentTeam.is_disqualified) {
-        backBtn.innerHTML = `<i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> Disqualification Hub`;
-      } else {
-        backBtn.innerHTML = `<i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Mission Hub`;
-      }
-    }
-
-    this.renderLeaderboardTableRows();
-
-    // Trigger background sync with Supabase to ensure fresh remote data without deleted teams
-    if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase && !this._isLeaderboardSyncing) {
-      this._isLeaderboardSyncing = true;
-      window.gameStore.syncLiveTeamsFromSupabase().then(() => {
-        this._isLeaderboardSyncing = false;
-        this.renderLeaderboardTableRows();
       }).catch(() => {
-        this._isLeaderboardSyncing = false;
+        this._isCompletedSyncing = false;
       });
     }
-  }
-
-  renderLeaderboardTableRows() {
-    const container = document.getElementById("leaderboard-table-body");
-    if (!container) return;
-
-    const currentTeam = window.gameStore.currentTeam;
-    const teams = window.gameStore.getLeaderboard();
-
-    container.innerHTML = teams.map((team, idx) => {
-      const isCurrent = currentTeam && (currentTeam.id === team.id || (currentTeam.email && team.email && currentTeam.email.toLowerCase() === team.email.toLowerCase()));
-      
-      let rankBadge = `<span class="font-mono text-gray-400 font-bold">#${idx + 1}</span>`;
-      if (idx === 0) rankBadge = `<span class="text-xl">🥇</span>`;
-      if (idx === 1) rankBadge = `<span class="text-xl">🥈</span>`;
-      if (idx === 2) rankBadge = `<span class="text-xl">🥉</span>`;
-
-      return `
-        <tr class="border-b border-gray-850 transition-colors ${
-          isCurrent 
-            ? (team.is_disqualified ? 'bg-red-950/40 border-red-500/50' : 'bg-emerald-950/30 border-emerald-500/40') 
-            : 'hover:bg-slate-900/40'
-        }">
-          <td class="py-3.5 px-4 text-center">
-            ${rankBadge}
-          </td>
-          <td class="py-3.5 px-4">
-            <div class="flex items-center gap-2">
-              <span class="font-bold text-sm ${isCurrent ? (team.is_disqualified ? 'text-red-400' : 'text-emerald-400') : 'text-white'}">
-                ${this.escapeHtml(team.name)}
-              </span>
-              ${isCurrent 
-                ? (team.is_disqualified 
-                    ? '<span class="text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded border border-red-500/40 font-mono">YOU (DISQUALIFIED)</span>' 
-                    : '<span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/40 font-mono">YOU</span>') 
-                : ''}
-            </div>
-            <div class="text-[11px] text-gray-400 truncate max-w-[200px] sm:max-w-xs">
-              ${this.escapeHtml(team.leader_name)} &bull; ${this.escapeHtml(team.members || '')}
-            </div>
-          </td>
-          <td class="py-3.5 px-3 font-cyber text-xs font-semibold ${team.is_disqualified ? 'text-gray-500' : 'text-emerald-300'}">
-            Round ${team.current_round}
-          </td>
-          <td class="py-3.5 px-3 font-mono text-xs font-bold text-white">
-            ${team.score || 0}
-          </td>
-          <td class="py-3.5 px-3 font-mono text-xs text-gray-300">
-            ${this.formatTime(team.elapsed_seconds || 0)}
-          </td>
-          <td class="py-3.5 px-4 text-right">
-            ${team.is_disqualified 
-              ? '<span class="badge-disqualified">DISQUALIFIED</span>' 
-              : team.is_completed 
-                ? '<span class="badge-neon font-bold text-emerald-400">FINISHED 🏆</span>' 
-                : '<span class="text-xs font-mono text-cyan">IN PROGRESS</span>'}
-          </td>
-        </tr>
-      `;
-    }).join("");
 
     if (window.lucide) window.lucide.createIcons();
   }

@@ -125,8 +125,27 @@
       </div>
     </div>
 
+    <!-- Quick Section Navigation Bar -->
+    <div class="flex flex-wrap items-center gap-2 text-xs font-cyber">
+      <a href="#admin-section-teams" class="btn-cyber text-xs px-3.5 py-1.5 flex items-center gap-1.5 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/60">
+        <i data-lucide="users" class="w-3.5 h-3.5"></i> Registered Teams
+      </a>
+      <a href="#admin-section-leaderboard" class="btn-cyber text-xs px-3.5 py-1.5 flex items-center gap-1.5 border-amber-500/40 text-amber-300 hover:bg-amber-950/60 font-bold shadow-[0_0_12px_rgba(245,158,11,0.2)]">
+        <i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-400"></i> Live Leaderboard
+      </a>
+      <a href="#admin-section-cheat" class="btn-cyber text-xs px-3.5 py-1.5 flex items-center gap-1.5 border-red-500/40 text-red-300 hover:bg-red-950/60">
+        <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> Fair-Play Monitor
+      </a>
+      <a href="#admin-section-questions" class="btn-cyber text-xs px-3.5 py-1.5 flex items-center gap-1.5 border-cyan/40 text-cyan hover:bg-cyan-950/60">
+        <i data-lucide="book-open" class="w-3.5 h-3.5"></i> Question Studio
+      </a>
+      <a href="#admin-section-supabase" class="btn-cyber text-xs px-3.5 py-1.5 flex items-center gap-1.5 border-gray-700 text-gray-300 hover:bg-slate-800">
+        <i data-lucide="database" class="w-3.5 h-3.5"></i> Supabase Cloud
+      </a>
+    </div>
+
     <!-- SECTION 1: REGISTERED TEAMS MONITOR & MANUAL ACCESS CODE DISPATCH -->
-    <section class="cyber-card overflow-hidden border-emerald-500/40">
+    <section id="admin-section-teams" class="cyber-card overflow-hidden border-emerald-500/40">
       <div class="p-5 border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span class="badge-neon text-[10px]">REAL-TIME TEAM DISPATCH</span>
@@ -168,8 +187,77 @@
       </div>
     </section>
 
-    <!-- SECTION 2: ANTI-CHEAT FAIR PLAY PROCTOR LOGS -->
-    <section class="cyber-card p-5 border-red-500/40 space-y-4">
+    <!-- ========================================================================
+         SECTION 2: LIVE TOURNAMENT LEADERBOARD
+         ======================================================================== -->
+    <section id="admin-section-leaderboard" class="cyber-card overflow-hidden border-amber-500/40 shadow-[0_0_25px_rgba(245,158,11,0.15)]">
+      <div class="p-5 border-b border-gray-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+              <i data-lucide="trophy" class="w-3 h-3 text-amber-400"></i> REAL-TIME STANDINGS
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> AUTO-SYNC: 4S
+            </span>
+          </div>
+          <h2 class="text-xl font-cyber font-bold text-white mt-1 flex items-center gap-2">
+            <i data-lucide="award" class="w-5 h-5 text-amber-400"></i> Live Tournament Leaderboard
+          </h2>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Real-time rankings, station progression, scores, and completion times. (Deleted teams are automatically excluded).
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter Buttons -->
+          <div class="flex items-center bg-slate-950/80 p-1 rounded-lg border border-gray-800 text-xs font-mono">
+            <button id="lead-filter-all" onclick="window.adminPage.setLeaderboardFilter('all')" class="px-2.5 py-1 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition-all">
+              All (<span id="lead-count-all">0</span>)
+            </button>
+            <button id="lead-filter-finished" onclick="window.adminPage.setLeaderboardFilter('finished')" class="px-2.5 py-1 rounded text-gray-400 hover:text-emerald-300 transition-all">
+              Finished (<span id="lead-count-finished">0</span>)
+            </button>
+            <button id="lead-filter-inprogress" onclick="window.adminPage.setLeaderboardFilter('inprogress')" class="px-2.5 py-1 rounded text-gray-400 hover:text-cyan transition-all">
+              In Progress (<span id="lead-count-inprogress">0</span>)
+            </button>
+            <button id="lead-filter-disqualified" onclick="window.adminPage.setLeaderboardFilter('disqualified')" class="px-2.5 py-1 rounded text-gray-400 hover:text-red-300 transition-all">
+              Disqualified (<span id="lead-count-disqualified">0</span>)
+            </button>
+          </div>
+
+          <!-- Search Input -->
+          <input type="text" id="leaderboard-search-input" oninput="window.adminPage.filterLeaderboard(this.value)" placeholder="Search leaderboard..." class="cyber-input text-xs py-1.5 px-3 max-w-[170px]">
+
+          <!-- Refresh Button -->
+          <button onclick="window.adminPage.refreshLeaderboard()" class="btn-cyber text-xs px-3 py-1.5 border-amber-500/40 text-amber-300 hover:bg-amber-950/60 flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Ranks
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-gray-800 bg-slate-950/70 font-cyber text-xs text-gray-400 uppercase">
+              <th class="py-3.5 px-4 text-center w-16">Rank</th>
+              <th class="py-3.5 px-4">Team &amp; Members</th>
+              <th class="py-3.5 px-3">Station / Round</th>
+              <th class="py-3.5 px-3">Total Score</th>
+              <th class="py-3.5 px-3">Elapsed Time</th>
+              <th class="py-3.5 px-4 text-center">Status</th>
+              <th class="py-3.5 px-4 text-right">Admin Controls</th>
+            </tr>
+          </thead>
+          <tbody id="admin-leaderboard-table-body" class="divide-y divide-gray-850">
+            <!-- Populated dynamically by admin.js -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 3: ANTI-CHEAT FAIR PLAY PROCTOR LOGS -->
+    <section id="admin-section-cheat" class="cyber-card p-5 border-red-500/40 space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 class="font-cyber text-base font-bold text-white flex items-center gap-2">
@@ -192,8 +280,8 @@
       </div>
     </section>
 
-    <!-- SECTION 3: ROUNDS, QUESTIONS & LOCATION CLUE STUDIO -->
-    <section class="space-y-4">
+    <!-- SECTION 4: ROUNDS, QUESTIONS & LOCATION CLUE STUDIO -->
+    <section id="admin-section-questions" class="space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
         <div>
           <h3 class="font-cyber text-lg font-bold text-white flex items-center gap-2">
@@ -290,8 +378,8 @@
       </div>
     </section>
 
-    <!-- SECTION 4: SUPABASE DATABASE CLOUD SYNC -->
-    <section class="cyber-card p-5 border-cyan/30 space-y-3">
+    <!-- SECTION 5: SUPABASE DATABASE CLOUD SYNC -->
+    <section id="admin-section-supabase" class="cyber-card p-5 border-cyan/30 space-y-3">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h4 class="font-cyber text-sm font-bold text-white flex items-center gap-2">

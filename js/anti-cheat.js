@@ -269,9 +269,6 @@ class AntiCheatEngine {
               }
             }
           }
-          if (window.app && window.app.currentView === 'leaderboard') {
-            window.app.renderLeaderboard();
-          }
         } catch (err) {}
         return;
       }
@@ -289,9 +286,6 @@ class AntiCheatEngine {
             );
             window.gameStore.save();
           }
-          if (window.app && window.app.currentView === 'leaderboard') {
-            window.app.renderLeaderboard();
-          }
         } catch (err) {}
         return;
       }
@@ -303,13 +297,13 @@ class AntiCheatEngine {
             this.hideLockout();
             if (window.cyberAudio) window.cyberAudio.playScanSuccess();
             if (window.app) {
-              if (window.app.currentView === 'leaderboard') {
-                window.app.renderLeaderboard();
-                window.app.showToast("🎉 Team successfully reinstated by Admin!", "success");
+              const isFinished = fresh.is_completed || fresh.completed || fresh.current_round > 3;
+              if (isFinished) {
+                window.app.switchView('completed');
               } else {
                 window.app.switchView('mission');
-                window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
               }
+              window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
             }
           }
         }
@@ -385,13 +379,13 @@ class AntiCheatEngine {
           this.hideLockout();
           if (window.cyberAudio) window.cyberAudio.playScanSuccess();
           if (window.app) {
-            if (window.app.currentView === 'leaderboard') {
-              window.app.renderLeaderboard();
-              window.app.showToast("🎉 Team successfully reinstated by Admin!", "success");
+            const isFinished = fresh.is_completed || fresh.completed || fresh.current_round > 3;
+            if (isFinished) {
+              window.app.switchView('completed');
             } else {
               window.app.switchView('mission');
-              window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
             }
+            window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
           }
         }
       }
@@ -489,9 +483,6 @@ class AntiCheatEngine {
           <div class="pt-3 flex flex-wrap gap-2 justify-center">
             <button id="btn-check-reinstate" onclick="window.antiCheatEngine.checkReinstatementStatus()" class="btn-cyber btn-cyber-danger text-xs px-4 py-2">
               <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check Status / Reload
-            </button>
-            <button onclick="window.app.viewLeaderboardFromLockout()" class="btn-cyber text-xs px-4 py-2">
-              <i data-lucide="trophy" class="w-4 h-4"></i> View Leaderboard
             </button>
             <button onclick="window.app.logout()" class="btn-cyber text-xs px-4 py-2 border-red-500/40 text-red-400 hover:bg-red-950/60 hover:border-red-500">
               <i data-lucide="log-out" class="w-4 h-4"></i> Sign Out

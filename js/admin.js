@@ -12,6 +12,8 @@ class AdminPageController {
     this.activeTeamStudioId = null;
     this.activeTeamStudioRound = 1;
     this.editingTeamQuestion = null;
+    this.leaderboardFilter = "all";
+    this.leaderboardSearch = "";
   }
 
   init() {
@@ -85,6 +87,7 @@ class AdminPageController {
       }
       this.updateStats();
       this.renderTeamsTable();
+      this.renderLiveLeaderboard();
       this.renderCheatMonitor();
     }, 4000);
   }
@@ -108,6 +111,7 @@ class AdminPageController {
   async autoApproveAll() {
     const count = window.gameStore.autoApproveAllTeams();
     this.renderTeamsTable();
+    this.renderLiveLeaderboard();
     this.updateStats();
     this.showToast(`⚡ All ${count} teams auto-approved with access codes!`, "success");
   }
@@ -129,6 +133,7 @@ class AdminPageController {
   renderAll() {
     this.updateStats();
     this.renderTeamsTable();
+    this.renderLiveLeaderboard();
     this.renderCheatMonitor();
     this.renderTabGuardStatus();
     this.renderRoundTabs();
@@ -390,6 +395,222 @@ class AdminPageController {
     }
   }
 
+  formatTime(seconds) {
+    if (!seconds || isNaN(seconds)) return "00m 00s";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`;
+  }
+
+  // --- Live Tournament Leaderboard ---
+  filterLeaderboard(val) {
+    this.leaderboardSearch = (val || "").toLowerCase().trim();
+    this.renderLiveLeaderboard();
+  }
+
+  setLeaderboardFilter(filterType) {
+    this.leaderboardFilter = filterType;
+    ['all', 'finished', 'inprogress', 'disqualified'].forEach(type => {
+      const btn = document.getElementById(`lead-filter-${type}`);
+      if (btn) {
+        if (type === filterType) {
+          btn.className = "px-2.5 py-1 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition-all";
+        } else {
+          btn.className = "px-2.5 py-1 rounded text-gray-400 hover:text-white transition-all";
+        }
+      }
+    });
+    this.renderLiveLeaderboard();
+  }
+
+  async refreshLeaderboard() {
+    if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase) {
+      await window.gameStore.syncLiveTeamsFromSupabase();
+    }
+    this.renderLiveLeaderboard();
+    this.showToast("🏆 Live Leaderboard rankings refreshed!", "info");
+  }
+
+  renderLiveLeaderboard() {
+    const container = document.getElementById("admin-leaderboard-table-body");
+    if (!container) return;
+
+    // Get all valid leaderboard teams from store (excluding admin, demo, and deleted teams)
+    let allLeaderboardTeams = window.gameStore.getLeaderboard ? window.gameStore.getLeaderboard() : [];
+
+    // Secondary strict safety filter: ensure NO deleted team EVER appears
+    allLeaderboardTeams = allLeaderboardTeams.filter(t => {
+      if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
+      if (window.gameStore.deletedTeams && Array.isArray(window.gameStore.deletedTeams) && window.gameStore.deletedTeams.length > 0) {
+        const isDeleted = window.gameStore.deletedTeams.some(d => 
+          (d.id && d.id === t.id) || 
+          (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()) ||
+          (d.name && t.name && d.name.toLowerCase() === t.name.toLowerCase())
+        );
+        if (isDeleted) return false;
+      }
+      return true;
+    });
+
+    // Update filter badge counters
+    const countAllEl = document.getElementById("lead-count-all");
+    const countFinishedEl = document.getElementById("lead-count-finished");
+    const countProgressEl = document.getElementById("lead-count-inprogress");
+    const countDisqEl = document.getElementById("lead-count-disqualified");
+
+    const totalCount = allLeaderboardTeams.length;
+    const finishedCount = allLeaderboardTeams.filter(t => (t.is_completed || t.completed || t.current_round > 3) && !t.is_disqualified).length;
+    const disqCount = allLeaderboardTeams.filter(t => t.is_disqualified).length;
+    const progressCount = allLeaderboardTeams.filter(t => (!t.is_completed && !t.completed && t.current_round <= 3) && !t.is_disqualified).length;
+
+    if (countAllEl) countAllEl.innerText = totalCount;
+    if (countFinishedEl) countFinishedEl.innerText = finishedCount;
+    if (countProgressEl) countProgressEl.innerText = progressCount;
+    if (countDisqEl) countDisqEl.innerText = disqCount;
+
+    // Apply category filter
+    let filteredTeams = allLeaderboardTeams;
+    if (this.leaderboardFilter === 'finished') {
+      filteredTeams = filteredTeams.filter(t => (t.is_completed || t.completed || t.current_round > 3) && !t.is_disqualified);
+    } else if (this.leaderboardFilter === 'inprogress') {
+      filteredTeams = filteredTeams.filter(t => (!t.is_completed && !t.completed && t.current_round <= 3) && !t.is_disqualified);
+    } else if (this.leaderboardFilter === 'disqualified') {
+      filteredTeams = filteredTeams.filter(t => t.is_disqualified);
+    }
+
+    // Apply search filter
+    if (this.leaderboardSearch) {
+      filteredTeams = filteredTeams.filter(t => 
+        (t.name && t.name.toLowerCase().includes(this.leaderboardSearch)) ||
+        (t.leader_name && t.leader_name.toLowerCase().includes(this.leaderboardSearch)) ||
+        (t.email && t.email.toLowerCase().includes(this.leaderboardSearch)) ||
+        (t.members && t.members.toLowerCase().includes(this.leaderboardSearch))
+      );
+    }
+
+    if (filteredTeams.length === 0) {
+      container.innerHTML = `
+        <tr>
+          <td colspan="7" class="p-8 text-center text-gray-500 font-mono text-xs">
+            <i data-lucide="trophy" class="w-8 h-8 mx-auto text-amber-500/40 mb-2"></i>
+            No teams found in this leaderboard view.
+          </td>
+        </tr>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    container.innerHTML = filteredTeams.map((team) => {
+      // Find team index in overall sorted standings to give accurate absolute rank
+      const overallRank = allLeaderboardTeams.findIndex(t => t.id === team.id);
+      const rankIdx = overallRank !== -1 ? overallRank : 0;
+
+      let rankDisplay = `<span class="font-mono text-gray-400 font-bold text-sm">#${rankIdx + 1}</span>`;
+      if (!team.is_disqualified) {
+        if (rankIdx === 0) rankDisplay = `<span class="text-2xl" title="1st Place Champion">🥇</span>`;
+        else if (rankIdx === 1) rankDisplay = `<span class="text-2xl" title="2nd Place Runner Up">🥈</span>`;
+        else if (rankIdx === 2) rankDisplay = `<span class="text-2xl" title="3rd Place Bronze">🥉</span>`;
+      }
+
+      const isCompleted = team.is_completed || team.completed || team.current_round > 3;
+
+      let statusBadge = '';
+      if (team.is_disqualified) {
+        statusBadge = '<span class="badge-disqualified">DISQUALIFIED</span>';
+      } else if (isCompleted) {
+        statusBadge = '<span class="badge-neon font-bold text-emerald-400 shadow-[0_0_10px_rgba(0,255,102,0.3)]">FINISHED 🏆</span>';
+      } else if (team.is_approved) {
+        statusBadge = '<span class="text-xs font-mono font-bold text-cyan bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded">IN PROGRESS</span>';
+      } else {
+        statusBadge = '<span class="text-[10px] font-mono text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40">AWAITING CODE</span>';
+      }
+
+      let stationProgress = '';
+      if (team.is_disqualified) {
+        stationProgress = `<span class="text-xs font-mono text-gray-500">Locked at Station ${team.current_round || 1}</span>`;
+      } else if (isCompleted) {
+        stationProgress = `
+          <div class="font-cyber text-xs font-bold text-emerald-300 flex items-center gap-1">
+            <span>🏆 ALL 3 STATIONS</span>
+          </div>
+          <div class="text-[10px] font-mono text-emerald-400">100% Solved</div>
+        `;
+      } else {
+        stationProgress = `
+          <div class="font-cyber text-xs font-bold text-white">
+            Station #${team.current_round || 1}
+          </div>
+          <div class="text-[10px] font-mono text-cyan">Active Question Set</div>
+        `;
+      }
+
+      return `
+        <tr class="border-b border-gray-850 hover:bg-slate-900/50 transition-colors text-xs ${
+          team.is_disqualified 
+            ? 'bg-red-950/10' 
+            : isCompleted 
+              ? 'bg-emerald-950/20' 
+              : ''
+        }">
+          <td class="py-3.5 px-4 text-center">
+            ${rankDisplay}
+          </td>
+
+          <td class="py-3.5 px-4">
+            <div class="font-bold text-white text-sm flex items-center gap-2">
+              <span>${this.escapeHtml(team.name)}</span>
+              ${team.access_code ? `<span class="text-[10px] font-mono text-gray-500">(${this.escapeHtml(team.access_code)})</span>` : ''}
+            </div>
+            <div class="text-[11px] text-gray-400">Leader: ${this.escapeHtml(team.leader_name || 'N/A')}</div>
+            <div class="text-[10px] text-gray-500 truncate max-w-[220px]">Members: ${this.escapeHtml(team.members || '--')}</div>
+          </td>
+
+          <td class="py-3.5 px-3">
+            ${stationProgress}
+          </td>
+
+          <td class="py-3.5 px-3">
+            <div class="text-sm font-cyber font-bold text-white">${team.score || 0} <span class="text-emerald-400 text-xs font-mono">pts</span></div>
+          </td>
+
+          <td class="py-3.5 px-3 font-mono text-gray-300">
+            ${this.formatTime(team.elapsed_seconds || 0)}
+          </td>
+
+          <td class="py-3.5 px-4 text-center">
+            ${statusBadge}
+          </td>
+
+          <td class="py-3.5 px-4 text-right">
+            <div class="flex items-center justify-end gap-1.5">
+              ${team.is_disqualified ? `
+                <button onclick="window.adminPage.reinstateTeam('${team.id}')" 
+                  class="px-2 py-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500 hover:text-black text-[11px] font-cyber transition-all" 
+                  title="Reinstate this team back into active tournament play">
+                  Reinstate
+                </button>
+              ` : `
+                <button onclick="window.adminPage.disqualifyTeam('${team.id}')" 
+                  class="px-2 py-1 rounded bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-600 hover:text-white text-[11px] font-cyber transition-all" 
+                  title="Manually disqualify this team">
+                  Disqualify
+                </button>
+              `}
+              <button onclick="window.adminPage.removeTeam('${team.id}')" 
+                class="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-gray-400 hover:border-red-500 hover:text-red-400 text-[11px] font-cyber transition-all" 
+                title="Completely delete and remove this team">
+                Remove
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
   // --- Fair-Play Proctor Monitor ---
   renderCheatMonitor() {
     const container = document.getElementById("admin-cheat-log-list");
@@ -399,10 +620,18 @@ class AdminPageController {
 
     // Filter out any logs belonging to teams that no longer exist or were removed
     const validLogs = logs.filter(log => {
+      // Check against deletedTeams list
+      if (window.gameStore.deletedTeams && window.gameStore.deletedTeams.some(d =>
+        (d.id && d.id === log.team_id) ||
+        (d.name && log.team_name && d.name.toLowerCase() === log.team_name.toLowerCase()) ||
+        (d.email && log.team_email && d.email.toLowerCase() === log.team_email.toLowerCase())
+      )) return false;
+
       return window.gameStore.teams.some(t => 
-        t.id === log.team_id || 
+        (t.role !== 'deleted' && !t.is_deleted) &&
+        (t.id === log.team_id || 
         (t.name && log.team_name && t.name.toLowerCase() === log.team_name.toLowerCase()) ||
-        (t.email && log.team_email && t.email.toLowerCase() === log.team_email.toLowerCase())
+        (t.email && log.team_email && t.email.toLowerCase() === log.team_email.toLowerCase()))
       );
     });
 
