@@ -149,21 +149,41 @@ class SupabaseManager {
   async insertTeam(teamData) {
     if (!this.client) return null;
     try {
+      const cleanEmail = (teamData.email || '').trim().toLowerCase();
+      const cleanName = (teamData.name || '').trim();
+
+      // Check if there is an existing row with this email or name in Supabase
+      let existingId = null;
+      try {
+        const { data: eRow } = await this.client.from("teams").select("id").ilike("email", cleanEmail).limit(1);
+        if (eRow && eRow.length > 0) {
+          existingId = eRow[0].id;
+        } else {
+          const { data: nRow } = await this.client.from("teams").select("id").ilike("name", cleanName).limit(1);
+          if (nRow && nRow.length > 0) existingId = nRow[0].id;
+        }
+      } catch (err) {}
+
+      const cleanAv = (teamData.avatar || 'neon-wolf').split('|')[0];
       const payload = {
-        name: teamData.name,
-        leader_name: teamData.leader_name,
-        members: teamData.members,
-        email: teamData.email,
+        name: cleanName,
+        leader_name: (teamData.leader_name || '').trim(),
+        members: (teamData.members || '').trim(),
+        email: cleanEmail,
         password_hash: teamData.password,
-        avatar: teamData.avatar || "neon-wolf",
-        role: teamData.role || "team",
+        avatar: cleanAv,
+        role: "team",
         access_code: teamData.access_code || null,
         is_approved: Boolean(teamData.is_approved),
-        is_disqualified: Boolean(teamData.is_disqualified)
+        is_disqualified: false,
+        disqualification_reason: null,
+        disqualified_at: null
       };
 
-      // Only pass explicit UUID if it matches UUID v4 regex, otherwise let Supabase default uuid_generate_v4() handle it
-      if (teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id)) {
+      if (existingId) {
+        payload.id = existingId;
+        teamData.id = existingId;
+      } else if (teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id)) {
         payload.id = teamData.id;
       }
 
@@ -174,6 +194,10 @@ class SupabaseManager {
         console.log("✅ Team successfully saved in Supabase Table Editor:", data);
         if (data && data.id) {
           teamData.id = data.id;
+          try {
+            await this.client.from("team_progress").delete().eq("team_id", data.id);
+            await this.client.from("cheat_logs").delete().eq("team_id", data.id);
+          } catch (cleanErr) {}
         }
       }
       return { data, error };

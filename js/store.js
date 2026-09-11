@@ -377,21 +377,44 @@ class GameStore {
       throw new Error("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!");
     }
 
-    // Check if name or email exists in active teams
+    // Check if name or email exists in active teams (allow re-registering if previously removed)
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim().toLowerCase();
     const exists = this.teams.find(t => (t.email && t.email.toLowerCase() === cleanEmail) || (t.name && t.name.toLowerCase() === cleanName));
     if (exists) {
-      throw new Error("A team with this name or email already exists! Please choose a different name or email.");
+      const isDel = exists.role === 'deleted' || exists.is_deleted || (this.deletedTeams || []).some(d =>
+        (d.id && d.id === exists.id) ||
+        (d.email && exists.email && d.email.toLowerCase() === exists.email.toLowerCase()) ||
+        (d.name && exists.name && d.name.toLowerCase() === exists.name.toLowerCase())
+      );
+      if (!isDel && exists.role !== 'admin') {
+        throw new Error("A team with this name or email already exists! Please choose a different name or email.");
+      }
     }
 
-    // Check if name or email was removed by tournament admin
-    const removedMatch = (this.deletedTeams || []).find(d => 
-      (d.email && d.email.toLowerCase() === cleanEmail) || 
-      (d.name && d.name.toLowerCase() === cleanName)
+    // If team name or email was in deletedTeams, un-delete it so it registers fresh
+    if (this.deletedTeams && Array.isArray(this.deletedTeams)) {
+      this.deletedTeams = this.deletedTeams.filter(d => 
+        !(d.email && d.email.toLowerCase() === cleanEmail) &&
+        !(d.name && d.name.toLowerCase() === cleanName)
+      );
+      try {
+        localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
+      } catch (e) {}
+    }
+
+    // Purge any stale/deleted instance of this team from this.teams so the new team replaces it
+    this.teams = this.teams.filter(t => 
+      !(t.email && t.email.toLowerCase() === cleanEmail) &&
+      !(t.name && t.name.toLowerCase() === cleanName)
     );
-    if (removedMatch) {
-      throw new Error("This team name or email was removed by tournament administration and cannot be registered.");
+
+    // Clear any old cheat logs for this team
+    if (this.cheatLogs && Array.isArray(this.cheatLogs)) {
+      this.cheatLogs = this.cheatLogs.filter(l => 
+        !(l.team_email && l.team_email.toLowerCase() === cleanEmail) &&
+        !(l.team_name && l.team_name.toLowerCase() === cleanName)
+      );
     }
 
     // Validate maximum 3 members per team
