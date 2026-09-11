@@ -377,12 +377,21 @@ class GameStore {
       throw new Error("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!");
     }
 
-    // Check if name or email exists
+    // Check if name or email exists in active teams
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim().toLowerCase();
     const exists = this.teams.find(t => (t.email && t.email.toLowerCase() === cleanEmail) || (t.name && t.name.toLowerCase() === cleanName));
     if (exists) {
-      throw new Error("A team with this name or email already exists!");
+      throw new Error("A team with this name or email already exists! Please choose a different name or email.");
+    }
+
+    // Check if name or email was removed by tournament admin
+    const removedMatch = (this.deletedTeams || []).find(d => 
+      (d.email && d.email.toLowerCase() === cleanEmail) || 
+      (d.name && d.name.toLowerCase() === cleanName)
+    );
+    if (removedMatch) {
+      throw new Error("This team name or email was removed by tournament administration and cannot be registered.");
     }
 
     // Validate maximum 3 members per team
@@ -428,18 +437,6 @@ class GameStore {
       active_session_token: null,  // Single device active session tracker
       created_at: new Date().toISOString()
     };
-
-    // Ensure newly registered team is not in local deletedTeams
-    if (this.deletedTeams && Array.isArray(this.deletedTeams)) {
-      this.deletedTeams = this.deletedTeams.filter(d => 
-        !(d.email && d.email.toLowerCase() === cleanEmail) &&
-        !(d.name && d.name.toLowerCase() === cleanName) &&
-        !(d.id && d.id === teamId)
-      );
-      try {
-        localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
-      } catch (e) {}
-    }
 
     this.teams.push(newTeam);
     // Note: Do NOT log in newTeam upon registration; they must sign in with their credentials
@@ -1240,26 +1237,6 @@ class GameStore {
           }
         });
 
-        // Auto-heal real teams (Rani, Novam, Novax) if they were accidentally caught in soft-delete
-        const restoreList = ['sanjayp.25ece@kongu.edu', 'deveeshp.25ece@kongu.edu', 'ar@gmail.com'];
-        deletedRemote = deletedRemote.filter(remoteTeam => {
-          if (remoteTeam.email && restoreList.includes(remoteTeam.email.toLowerCase())) {
-            remoteTeam.role = 'team';
-            remoteTeam.disqualification_reason = null;
-            remoteTeam.is_disqualified = false;
-            activeRemote.push(remoteTeam);
-            if (window.supabaseClient && window.supabaseClient.client) {
-              window.supabaseClient.client.from("teams").update({
-                role: 'team',
-                disqualification_reason: null,
-                is_disqualified: false
-              }).eq("id", remoteTeam.id);
-            }
-            return false;
-          }
-          return true;
-        });
-
         // 1. Supabase is the single source of truth: populate deletedTeams strictly from remote deleted teams
         this.deletedTeams = deletedRemote.map(remoteTeam => ({
           id: remoteTeam.id,
@@ -1313,12 +1290,18 @@ class GameStore {
           }
 
           // Otherwise, this team was deleted by Admin or is stale: purge it!
-          this.deletedTeams.push({
-            id: localTeam.id,
-            email: localTeam.email,
-            name: localTeam.name,
-            deleted_at: new Date().toISOString()
-          });
+          if (!this.deletedTeams.some(d => 
+            (d.id && d.id === localTeam.id) || 
+            (d.email && localTeam.email && d.email.toLowerCase() === localTeam.email.toLowerCase()) ||
+            (d.name && localTeam.name && d.name.toLowerCase() === localTeam.name.toLowerCase())
+          )) {
+            this.deletedTeams.push({
+              id: localTeam.id,
+              email: localTeam.email,
+              name: localTeam.name,
+              deleted_at: new Date().toISOString()
+            });
+          }
           return false;
         });
 

@@ -401,38 +401,91 @@ class SeekAndScanApp {
     this.pendingLogin = null;
   }
 
-  handleRegister(e) {
+  async handleRegister(e) {
     e.preventDefault();
     if (window.cyberAudio) window.cyberAudio.playClick();
 
-    const name = document.getElementById("reg-team-name").value.trim();
-    const leader = document.getElementById("reg-leader-name").value.trim();
-    const m2 = (document.getElementById("reg-member-2")?.value || "").trim();
-    const m3 = (document.getElementById("reg-member-3")?.value || "").trim();
-    const email = document.getElementById("reg-email").value.trim();
-    const pass = document.getElementById("reg-password").value;
-    const avatar = document.querySelector('input[name="team-avatar"]:checked')?.value || 'neon-wolf';
-
-    if (!leader) {
-      this.showToast("Team leader name is required!", "error");
-      return;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
     }
-
-    // STRICT EMAIL DOMAIN VALIDATION
-    if (!window.gameStore.isValidEmail(email)) {
-      this.showToast("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!", "error");
-      return;
-    }
-
-    const roster = [leader, m2, m3].filter(Boolean);
-    if (roster.length > 3) {
-      this.showToast("One team can have a maximum of 3 members only!", "error");
-      return;
-    }
-
-    const membersString = roster.join(", ");
 
     try {
+      const name = document.getElementById("reg-team-name").value.trim();
+      const leader = document.getElementById("reg-leader-name").value.trim();
+      const m2 = (document.getElementById("reg-member-2")?.value || "").trim();
+      const m3 = (document.getElementById("reg-member-3")?.value || "").trim();
+      const email = document.getElementById("reg-email").value.trim();
+      const pass = document.getElementById("reg-password").value;
+      const avatar = document.querySelector('input[name="team-avatar"]:checked')?.value || 'neon-wolf';
+
+      if (!name) {
+        this.showToast("Team name is required!", "error");
+        return;
+      }
+
+      if (!leader) {
+        this.showToast("Team leader name is required!", "error");
+        return;
+      }
+
+      // STRICT EMAIL DOMAIN VALIDATION
+      if (!window.gameStore.isValidEmail(email)) {
+        this.showToast("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!", "error");
+        return;
+      }
+
+      const roster = [leader, m2, m3].filter(Boolean);
+      if (roster.length > 3) {
+        this.showToast("One team can have a maximum of 3 members only!", "error");
+        return;
+      }
+
+      const cleanEmail = email.toLowerCase();
+      const cleanName = name.toLowerCase();
+
+      // 1. Check local deleted teams & active teams first
+      if (window.gameStore) {
+        const removedLocal = (window.gameStore.deletedTeams || []).find(d =>
+          (d.email && d.email.toLowerCase() === cleanEmail) ||
+          (d.name && d.name.toLowerCase() === cleanName)
+        );
+        if (removedLocal) {
+          this.showToast("This team name or email was removed by tournament administration and cannot be registered.", "error");
+          return;
+        }
+        const existingLocal = (window.gameStore.teams || []).find(t =>
+          (t.email && t.email.toLowerCase() === cleanEmail) ||
+          (t.name && t.name.toLowerCase() === cleanName)
+        );
+        if (existingLocal) {
+          this.showToast("A team with this name or email already exists! Please choose a different name or email.", "error");
+          return;
+        }
+      }
+
+      // 2. Check remote Supabase database for removed or existing teams
+      if (window.supabaseClient && typeof window.supabaseClient.checkTeamExists === 'function') {
+        try {
+          const remoteTeam = await window.supabaseClient.checkTeamExists(email, name);
+          if (remoteTeam) {
+            if (remoteTeam.role === 'deleted' || remoteTeam.is_deleted) {
+              this.showToast("This team name or email was removed by tournament administration and cannot be registered.", "error");
+              return;
+            }
+            if (remoteTeam.role !== 'admin') {
+              this.showToast("A team with this name or email already exists! Please choose a different name or email.", "error");
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn("Supabase team existence check warning:", err);
+        }
+      }
+
+      const membersString = roster.join(", ");
+
       const newTeam = window.gameStore.registerTeam({
         name,
         leader_name: leader,
@@ -482,7 +535,10 @@ class SeekAndScanApp {
       this.showToast("🎉 You have registered successfully! On event day, collect your Access Code from the Control Desk.", "success");
       this.updateHeaderUI();
     } catch (err) {
+      if (window.cyberAudio) window.cyberAudio.playIncorrect();
       this.showToast(err.message, "error");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 

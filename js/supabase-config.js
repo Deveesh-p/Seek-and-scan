@@ -119,6 +119,33 @@ class SupabaseManager {
     return this.fetchLiveTeams();
   }
 
+  async checkTeamExists(email, name) {
+    if (!this.client) return null;
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const cleanName = (name || '').trim().toLowerCase();
+
+      const queries = [];
+      if (cleanEmail) {
+        queries.push(this.client.from("teams").select("id, name, email, role").ilike("email", cleanEmail).limit(1));
+      }
+      if (cleanName) {
+        queries.push(this.client.from("teams").select("id, name, email, role").ilike("name", cleanName).limit(1));
+      }
+
+      const results = await Promise.all(queries);
+      for (const res of results) {
+        if (res && res.data && res.data.length > 0) {
+          return res.data[0];
+        }
+      }
+      return null;
+    } catch (e) {
+      console.warn("Supabase checkTeamExists error:", e);
+      return null;
+    }
+  }
+
   async insertTeam(teamData) {
     if (!this.client) return null;
     try {
@@ -356,7 +383,7 @@ class SupabaseManager {
         } catch (lookupErr) {}
       }
 
-      // 1. SOFT-DELETE IN SUPABASE FIRST (Always permitted by 'Public Update Teams' RLS policy)
+      // 1. SOFT-DELETE IN SUPABASE (Preserves removed record to prevent re-registration)
       const softDeletePayload = {
         role: 'deleted',
         is_approved: false,
@@ -364,31 +391,20 @@ class SupabaseManager {
         disqualification_reason: 'Removed by Tournament Admin'
       };
 
+      let deleteResult = null;
       if (resolvedId) {
-        await this.client.from("teams").update(softDeletePayload).eq("id", resolvedId);
+        deleteResult = await this.client.from("teams").update(softDeletePayload).eq("id", resolvedId);
         await this.client.from("team_progress").delete().eq("team_id", resolvedId);
         await this.client.from("cheat_logs").delete().eq("team_id", resolvedId);
       }
       if (teamEmail) {
-        await this.client.from("teams").update(softDeletePayload).ilike("email", teamEmail);
+        deleteResult = await this.client.from("teams").update(softDeletePayload).ilike("email", teamEmail);
       }
       if (teamName) {
         await this.client.from("teams").update(softDeletePayload).ilike("name", teamName);
       }
 
-      // 2. ALSO ATTEMPT HARD DELETE FROM SUPABASE
-      let deleteResult = null;
-      if (resolvedId) {
-        deleteResult = await this.client.from("teams").delete().eq("id", resolvedId);
-      }
-      if (teamEmail) {
-        deleteResult = await this.client.from("teams").delete().ilike("email", teamEmail);
-      }
-      if (teamName) {
-        await this.client.from("teams").delete().ilike("name", teamName);
-      }
-
-      console.log("✅ Team and associated records deleted/marked removed from Supabase:", resolvedId || teamEmail || teamName);
+      console.log("✅ Team marked permanently removed in Supabase (saved as deleted):", resolvedId || teamEmail || teamName);
       return deleteResult;
     } catch (e) {
       console.warn("Supabase deleteTeam exception:", e);

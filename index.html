@@ -484,7 +484,7 @@
           <i data-lucide="flip-horizontal" class="w-4 h-4"></i> Switch Camera
         </button>
         
-        <label class="btn-cyber btn-cyber-cyan text-xs px-3.5 py-2 cursor-pointer">
+        <label class="btn-cyber btn-cyber-cyan text-xs px-3.5 py-2 cursor-pointer" onclick="if(window.antiCheatEngine) window.antiCheatEngine.pauseForFilePicker()">
           <i data-lucide="image" class="w-4 h-4"></i> Upload QR Picture
           <input type="file" accept="image/*" class="sr-only" onchange="window.qrScannerEngine.scanFile(this.files[0])">
         </label>

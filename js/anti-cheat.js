@@ -12,6 +12,9 @@ class AntiCheatEngine {
     this.lockoutModal = null;
     this.listenersAttached = false;
     this.blurTimer = null;
+    this.focusWatcherTimer = null;
+    this.sustainedFocusLossCount = 0;
+    this.scannerGraceUntil = 0;
     this.blurWarningCount = 0;
     this.isPausedForFilePicker = false;
   }
@@ -97,7 +100,31 @@ class AntiCheatEngine {
 
     this.isActive = true;
     this.isPaused = false;
+    this.scannerGraceUntil = Date.now() + 1500;
+    this.sustainedFocusLossCount = 0;
     this.showProctorStatusBadge(true);
+
+    // Active focus watcher: detects Google Assistant ("Hey Google"), Gemini Live overlay, split-screen, or screen-sharing tools
+    if (this.focusWatcherTimer) clearInterval(this.focusWatcherTimer);
+    this.focusWatcherTimer = setInterval(() => {
+      if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
+      if (this.isPausedForFilePicker) return;
+      if (!this.isTabSwitchGuardEnabled()) return;
+      if (Date.now() < this.scannerGraceUntil) return;
+
+      if (!document.hasFocus() || document.hidden) {
+        this.sustainedFocusLossCount = (this.sustainedFocusLossCount || 0) + 1;
+        if (this.sustainedFocusLossCount >= 2) {
+          console.warn("🚨 Sustained focus loss detected: Google Assistant / Gemini Live / screen share / overlay!");
+          this.handleViolation(
+            "SCREEN_SHARE_LIVE_OR_OVERLAY",
+            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or background app switch detected after entering station scanner."
+          );
+        }
+      } else {
+        this.sustainedFocusLossCount = 0;
+      }
+    }, 500);
   }
 
   stopProctoring() {
@@ -107,6 +134,11 @@ class AntiCheatEngine {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
     }
+    if (this.focusWatcherTimer) {
+      clearInterval(this.focusWatcherTimer);
+      this.focusWatcherTimer = null;
+    }
+    this.sustainedFocusLossCount = 0;
     this.showProctorStatusBadge(false);
   }
 
@@ -116,6 +148,11 @@ class AntiCheatEngine {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
     }
+    if (this.focusWatcherTimer) {
+      clearInterval(this.focusWatcherTimer);
+      this.focusWatcherTimer = null;
+    }
+    this.sustainedFocusLossCount = 0;
     console.log(`🛡️ Anti-Cheat paused: ${reason}`);
   }
 
@@ -134,6 +171,7 @@ class AntiCheatEngine {
       }
       if (!this.isTabSwitchGuardEnabled()) return;
       if (this.isPausedForFilePicker) return;
+      if (Date.now() < this.scannerGraceUntil) return;
 
       if (document.hidden) {
         console.warn("🚨 Tab switch or backgrounding detected during tournament play!");
@@ -144,7 +182,7 @@ class AntiCheatEngine {
       }
     });
 
-    // 2. Window Blur (Circle-to-Search, Split Screen, App Switcher)
+    // 2. Window Blur (Circle-to-Search, Split Screen, Google Assistant / Gemini Live overlay, Screen Sharing)
     // Automatically disqualifies on sustained focus loss during active tournament play!
     window.addEventListener("blur", () => {
       if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) {
@@ -153,39 +191,35 @@ class AntiCheatEngine {
       }
       if (!this.isTabSwitchGuardEnabled()) return;
       if (this.isPausedForFilePicker) return;
-
-      // Ignore blur if camera scanner is running
-      if (window.qrScannerEngine && window.qrScannerEngine.isScanning) return;
-
-      const currentTeam = window.gameStore ? window.gameStore.currentTeam : null;
-      const questionsPanel = document.getElementById("station-questions-panel");
-      const isQuestionsVisible = questionsPanel && !questionsPanel.classList.contains("hidden");
-      // Protect initial camera setup on scanner, but monitor strictly during question challenge
-      if (!currentTeam || (!currentTeam.station_unlocked && !isQuestionsVisible)) return;
+      if (Date.now() < this.scannerGraceUntil) return;
 
       if (this.blurTimer) clearTimeout(this.blurTimer);
 
-      // Require 750ms of sustained focus loss (catches Circle-to-Search, split-screen, and app switching)
+      // Require 500ms of sustained focus loss (catches Google Assistant, Gemini Live overlay, Circle-to-Search, split-screen, and app switching)
       this.blurTimer = setTimeout(() => {
         if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
-        if (window.qrScannerEngine && window.qrScannerEngine.isScanning) return;
         if (this.isPausedForFilePicker) return;
         if (!this.isTabSwitchGuardEnabled()) return;
+        if (Date.now() < this.scannerGraceUntil) return;
 
         if (!document.hasFocus()) {
-          console.warn("🚨 Sustained window blur detected: Circle-to-Search or background app switch!");
+          console.warn("🚨 Sustained window blur detected: Google Assistant / Gemini Live / screen share / Circle-to-Search!");
           this.handleViolation(
-            "CIRCLE_TO_SEARCH_OR_APP_SWITCH",
-            "Lost screen focus! Circle-to-Search, split screen, or background app switch detected during tournament play."
+            "SCREEN_SHARE_LIVE_OR_OVERLAY",
+            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or background app switch detected after entering station scanner."
           );
         }
-      }, 750);
+      }, 500);
     });
 
     window.addEventListener("focus", () => {
       if (this.blurTimer) {
         clearTimeout(this.blurTimer);
         this.blurTimer = null;
+      }
+      this.sustainedFocusLossCount = 0;
+      if (this.isPausedForFilePicker) {
+        this.resumeFromFilePicker();
       }
     });
 

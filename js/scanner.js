@@ -97,6 +97,9 @@ class QRScannerEngine {
   }
 
   async toggleCamera() {
+    if (window.antiCheatEngine) {
+      window.antiCheatEngine.scannerGraceUntil = Date.now() + 1500;
+    }
     await this.stopCamera();
     this.facingMode = this.facingMode === "environment" ? "user" : "environment";
     await this.startCamera();
