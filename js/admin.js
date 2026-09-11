@@ -136,6 +136,7 @@ class AdminPageController {
     this.renderLiveLeaderboard();
     this.renderCheatMonitor();
     this.renderTabGuardStatus();
+    this.renderEmailConfig();
     this.renderRoundTabs();
     this.renderRoundEditor(this.activeRoundNum);
     this.renderQRGenerator(this.activeRoundNum);
@@ -742,6 +743,122 @@ class AdminPageController {
         : "⚠️ Tab Switch Guard DISABLED: Tab switches will not disqualify players.",
       newState ? "success" : "warning"
     );
+  }
+
+  // --- Real Inbox OTP Email Dispatcher Settings ---
+  renderEmailConfig() {
+    if (!window.emailService) return;
+    const config = window.emailService.getConfig();
+    const serviceInput = document.getElementById("admin-email-service-id");
+    const templateInput = document.getElementById("admin-email-template-id");
+    const publicInput = document.getElementById("admin-email-public-key");
+    const badge = document.getElementById("admin-email-status-badge");
+
+    if (serviceInput && !serviceInput.value) serviceInput.value = config.serviceId || "";
+    if (templateInput && !templateInput.value) templateInput.value = config.templateId || "";
+    if (publicInput && !publicInput.value) publicInput.value = config.publicKey || "";
+
+    if (badge) {
+      if (config.isConfigured) {
+        badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Service: Live &amp; Ready`;
+      } else {
+        badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-amber-500/50 bg-amber-950/40 text-amber-300";
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> Service: Not Configured`;
+      }
+    }
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  handleSaveEmailConfig(e) {
+    e.preventDefault();
+    const serviceId = (document.getElementById("admin-email-service-id")?.value || "").trim();
+    const templateId = (document.getElementById("admin-email-template-id")?.value || "").trim();
+    const publicKey = (document.getElementById("admin-email-public-key")?.value || "").trim();
+
+    if (window.emailService) {
+      const isOk = window.emailService.saveConfig(serviceId, templateId, publicKey);
+      this.renderEmailConfig();
+      if (isOk) {
+        this.showToast("✅ EmailJS credentials saved! OTP emails will now be delivered directly to players' inboxes.", "success");
+      } else {
+        this.showToast("Settings saved! Please provide all 3 fields (Service ID, Template ID, Public Key) to complete setup.", "warning");
+      }
+    }
+  }
+
+  handleClearEmailConfig() {
+    if (window.emailService) {
+      window.emailService.saveConfig("", "", "");
+      const s = document.getElementById("admin-email-service-id");
+      const t = document.getElementById("admin-email-template-id");
+      const p = document.getElementById("admin-email-public-key");
+      if (s) s.value = "";
+      if (t) t.value = "";
+      if (p) p.value = "";
+      this.renderEmailConfig();
+      this.showToast("EmailJS settings cleared.", "info");
+    }
+  }
+
+  async handleSendTestEmail() {
+    const input = document.getElementById("admin-email-test-input");
+    const resultBox = document.getElementById("admin-email-test-result");
+    const btn = document.getElementById("btn-admin-send-test-email");
+    const targetEmail = (input?.value || "").trim().toLowerCase();
+
+    if (!targetEmail) {
+      this.showToast("Please enter an email address to send test OTP.", "error");
+      return;
+    }
+
+    if (!window.gameStore.isValidEmail(targetEmail)) {
+      this.showToast("Please enter a valid Google (@gmail.com) or Kongu (@kongu.edu) email.", "error");
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin inline-block mr-1">⏳</span> Sending...`;
+    }
+
+    try {
+      if (!window.emailService) {
+        throw new Error("Email service is not loaded.");
+      }
+
+      const res = await window.emailService.sendTestEmail(targetEmail);
+      if (res.success) {
+        this.showToast(`🎉 Test OTP email delivered to ${targetEmail}! Check your inbox.`, "success");
+        if (resultBox) {
+          resultBox.className = "p-2.5 rounded text-xs font-mono bg-emerald-950/60 border border-emerald-500/50 text-emerald-300";
+          resultBox.innerHTML = `✅ <strong>Success!</strong> Test email dispatched to <code>${targetEmail}</code>. Please check your inbox and spam folder.`;
+          resultBox.classList.remove("hidden");
+        }
+      } else if (res.notConfigured) {
+        this.showToast("⚠️ EmailJS is not configured yet. Paste your Service ID, Template ID, and Public Key above.", "warning");
+        if (resultBox) {
+          resultBox.className = "p-2.5 rounded text-xs font-mono bg-amber-950/60 border border-amber-500/50 text-amber-300";
+          resultBox.innerHTML = `⚠️ <strong>Not Configured:</strong> Please save your EmailJS keys above first. Simulated test code: <strong>${res.fallbackOtp}</strong>`;
+          resultBox.classList.remove("hidden");
+        }
+      } else {
+        this.showToast(`❌ Email send failed: ${res.error}`, "error");
+        if (resultBox) {
+          resultBox.className = "p-2.5 rounded text-xs font-mono bg-red-950/60 border border-red-500/50 text-red-300";
+          resultBox.innerHTML = `❌ <strong>Error:</strong> ${res.error}`;
+          resultBox.classList.remove("hidden");
+        }
+      }
+    } catch (e) {
+      this.showToast(`Error: ${e.message}`, "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="mail-check" class="w-3.5 h-3.5"></i> Send Test OTP`;
+        if (window.lucide) window.lucide.createIcons();
+      }
+    }
   }
 
   // --- Rounds, Questions & Clues Studio ---

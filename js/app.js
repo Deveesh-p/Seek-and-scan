@@ -1289,6 +1289,12 @@ class SeekAndScanApp {
         teamName: team.name
       };
 
+      // Dispatch real email to player's inbox via emailService
+      let emailResult = { success: false, notConfigured: true };
+      if (window.emailService) {
+        emailResult = await window.emailService.sendOtpEmail(email, otp, team.name);
+      }
+
       // Switch to Step 2
       document.getElementById("form-rec-step1").classList.add("hidden");
       document.getElementById("form-rec-step2").classList.remove("hidden");
@@ -1299,8 +1305,16 @@ class SeekAndScanApp {
         otpInput.focus();
       }
 
-      if (window.cyberAudio) window.cyberAudio.playCorrect();
-      this.showToast(`📬 Verification OTP dispatched to ${email}! (Security Preview Code: ${otp})`, "success");
+      if (emailResult.success) {
+        if (window.cyberAudio) window.cyberAudio.playCorrect();
+        this.showToast(`📩 Verification OTP sent to your inbox: ${email}! Please check your Inbox and Spam.`, "success");
+      } else if (emailResult.notConfigured) {
+        if (window.cyberAudio) window.cyberAudio.playCorrect();
+        this.showToast(`📬 Verification OTP generated for ${email}! (Testing Code: ${otp})`, "success");
+      } else {
+        if (window.cyberAudio) window.cyberAudio.playCorrect();
+        this.showToast(`⚠️ Email dispatch alert (${emailResult.error}). Backup code: ${otp}`, "warning");
+      }
     } catch (err) {
       if (window.cyberAudio) window.cyberAudio.playIncorrect();
       this.showToast(err.message, "error");
@@ -1313,7 +1327,7 @@ class SeekAndScanApp {
     }
   }
 
-  handleResendOTP() {
+  async handleResendOTP() {
     if (!this.recoveryState || !this.recoveryState.email) {
       this.resetRecoveryForm();
       return;
@@ -1329,6 +1343,15 @@ class SeekAndScanApp {
     }
 
     if (window.cyberAudio) window.cyberAudio.playClick();
+
+    if (window.emailService) {
+      const emailResult = await window.emailService.sendOtpEmail(this.recoveryState.email, otp, this.recoveryState.teamName || 'Team');
+      if (emailResult.success) {
+        this.showToast(`🔄 Fresh OTP sent to your inbox (${this.recoveryState.email})! Please check your email.`, "success");
+        return;
+      }
+    }
+
     this.showToast(`🔄 Fresh OTP dispatched to ${this.recoveryState.email}! (Code: ${otp})`, "info");
   }
 
