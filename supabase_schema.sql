@@ -111,12 +111,15 @@ CREATE POLICY "Public Read Questions" ON questions FOR SELECT USING (true);
 CREATE POLICY "Public Read Teams" ON teams FOR SELECT USING (true);
 CREATE POLICY "Public Insert Teams" ON teams FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public Update Teams" ON teams FOR UPDATE USING (true);
+CREATE POLICY "Public Delete Teams" ON teams FOR DELETE USING (true);
 CREATE POLICY "Public Read Progress" ON team_progress FOR SELECT USING (true);
 CREATE POLICY "Public Upsert Progress" ON team_progress FOR ALL USING (true);
+CREATE POLICY "Public Delete Progress" ON team_progress FOR DELETE USING (true);
 CREATE POLICY "Public Insert Submissions" ON submissions FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public Read Submissions" ON submissions FOR SELECT USING (true);
 CREATE POLICY "Public Insert Cheat Logs" ON cheat_logs FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public Read Cheat Logs" ON cheat_logs FOR SELECT USING (true);
+CREATE POLICY "Public Delete Cheat Logs" ON cheat_logs FOR DELETE USING (true);
 
 -- Enable Realtime publication for live leaderboard
 ALTER PUBLICATION supabase_realtime ADD TABLE team_progress;

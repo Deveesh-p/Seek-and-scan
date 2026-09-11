@@ -92,13 +92,14 @@ class SupabaseManager {
       const { data, error } = await this.client
         .from("teams")
         .select("*")
+        .neq("role", "deleted")
         .order("created_at", { ascending: false });
 
       if (error) {
         console.warn("Supabase fetchLiveTeams error:", error);
         return null;
       }
-      return data;
+      return (data || []).filter(t => t.role !== 'deleted' && t.role !== 'admin' && !t.is_deleted);
     } catch (e) {
       console.warn("Supabase fetchLiveTeams exception:", e);
       return null;
@@ -269,23 +270,33 @@ class SupabaseManager {
         } catch (lookupErr) {}
       }
 
-      // 1. Delete child records in progress & cheat logs
+      // 1. SOFT-DELETE IN SUPABASE FIRST (Always permitted by 'Public Update Teams' RLS policy)
+      const softDeletePayload = {
+        role: 'deleted',
+        is_approved: false,
+        is_disqualified: false,
+        disqualification_reason: 'Removed by Tournament Admin'
+      };
+
       if (resolvedId) {
+        await this.client.from("teams").update(softDeletePayload).eq("id", resolvedId);
         await this.client.from("team_progress").delete().eq("team_id", resolvedId);
         await this.client.from("cheat_logs").delete().eq("team_id", resolvedId);
       }
+      if (teamEmail) {
+        await this.client.from("teams").update(softDeletePayload).eq("email", teamEmail);
+      }
 
-      // 2. Delete team from teams table
+      // 2. ALSO ATTEMPT HARD DELETE FROM SUPABASE
       let deleteResult = null;
       if (resolvedId) {
         deleteResult = await this.client.from("teams").delete().eq("id", resolvedId);
       }
       if (teamEmail) {
-        // Also delete by email to ensure complete clean up
         deleteResult = await this.client.from("teams").delete().eq("email", teamEmail);
       }
 
-      console.log("✅ Team and associated records deleted from Supabase:", resolvedId || teamEmail);
+      console.log("✅ Team and associated records deleted/marked removed from Supabase:", resolvedId || teamEmail);
       return deleteResult;
     } catch (e) {
       console.warn("Supabase deleteTeam exception:", e);

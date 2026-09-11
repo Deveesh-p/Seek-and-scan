@@ -139,7 +139,11 @@ class AdminPageController {
 
   // --- Stats Bar ---
   updateStats() {
-    const teams = window.gameStore.teams.filter(t => t.role !== 'admin');
+    const teams = window.gameStore.teams.filter(t => {
+      if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
+      if (window.gameStore.deletedTeams && window.gameStore.deletedTeams.some(d => (d.id && d.id === t.id) || (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()))) return false;
+      return true;
+    });
     const total = teams.length;
     const pending = teams.filter(t => !t.is_approved && !t.is_disqualified).length;
     const active = teams.filter(t => t.is_approved && !t.is_disqualified).length;
@@ -161,7 +165,11 @@ class AdminPageController {
     const container = document.getElementById("admin-teams-table-body");
     if (!container) return;
 
-    let teams = window.gameStore.teams.filter(t => t.role !== 'admin');
+    let teams = window.gameStore.teams.filter(t => {
+      if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
+      if (window.gameStore.deletedTeams && window.gameStore.deletedTeams.some(d => (d.id && d.id === t.id) || (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()))) return false;
+      return true;
+    });
 
     if (this.searchFilter) {
       teams = teams.filter(t => 

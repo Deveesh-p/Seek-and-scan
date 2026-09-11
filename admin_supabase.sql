@@ -135,17 +135,26 @@ CREATE POLICY "Public Insert Teams" ON teams FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "Public Update Teams" ON teams;
 CREATE POLICY "Public Update Teams" ON teams FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Public Delete Teams" ON teams;
+CREATE POLICY "Public Delete Teams" ON teams FOR DELETE USING (true);
+
 DROP POLICY IF EXISTS "Public Read Progress" ON team_progress;
 CREATE POLICY "Public Read Progress" ON team_progress FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Public Upsert Progress" ON team_progress;
 CREATE POLICY "Public Upsert Progress" ON team_progress FOR ALL USING (true);
 
+DROP POLICY IF EXISTS "Public Delete Progress" ON team_progress;
+CREATE POLICY "Public Delete Progress" ON team_progress FOR DELETE USING (true);
+
 DROP POLICY IF EXISTS "Public Insert Cheat Logs" ON cheat_logs;
 CREATE POLICY "Public Insert Cheat Logs" ON cheat_logs FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public Read Cheat Logs" ON cheat_logs;
 CREATE POLICY "Public Read Cheat Logs" ON cheat_logs FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Public Delete Cheat Logs" ON cheat_logs;
+CREATE POLICY "Public Delete Cheat Logs" ON cheat_logs FOR DELETE USING (true);
 
 DROP POLICY IF EXISTS "Admin Read Admin Users" ON admin_users;
 CREATE POLICY "Admin Read Admin Users" ON admin_users FOR SELECT USING (true);
