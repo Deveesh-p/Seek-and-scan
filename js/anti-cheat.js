@@ -247,17 +247,52 @@ class AntiCheatEngine {
     // 7. Instant Cross-Tab Reinstatement and Deletion Listener
     window.addEventListener("storage", async (e) => {
       if (e.key === 'seek_scan_team_deleted') {
-        if (window.gameStore && window.gameStore.currentTeam) {
-          try {
-            const data = JSON.parse(e.newValue || '{}');
+        try {
+          const data = JSON.parse(e.newValue || '{}');
+          if (window.gameStore) {
+            if (!window.gameStore.deletedTeams) window.gameStore.deletedTeams = [];
+            if (!window.gameStore.deletedTeams.some(d => (d.id && d.id === data.id) || (d.email && data.email && d.email.toLowerCase() === data.email.toLowerCase()))) {
+              window.gameStore.deletedTeams.push(data);
+            }
+            window.gameStore.teams = window.gameStore.teams.filter(t => 
+              t.id !== data.id && 
+              (!t.email || !data.email || t.email.toLowerCase() !== data.email.toLowerCase()) &&
+              (!t.name || !data.name || t.name.toLowerCase() !== data.name.toLowerCase())
+            );
+            window.gameStore.save();
+          }
+          if (window.gameStore && window.gameStore.currentTeam) {
             if (data.id === window.gameStore.currentTeam.id || (data.email && window.gameStore.currentTeam.email && data.email.toLowerCase() === window.gameStore.currentTeam.email.toLowerCase())) {
               if (window.app) {
                 window.app.logout();
                 window.app.showToast("Your team registration was removed by the administrator.", "warning");
               }
             }
-          } catch (err) {}
-        }
+          }
+          if (window.app && window.app.currentView === 'leaderboard') {
+            window.app.renderLeaderboard();
+          }
+        } catch (err) {}
+        return;
+      }
+
+      if (e.key === 'seek_scan_deleted_teams') {
+        try {
+          if (window.gameStore) {
+            window.gameStore.deletedTeams = JSON.parse(e.newValue || '[]');
+            window.gameStore.teams = window.gameStore.teams.filter(t => 
+              !window.gameStore.deletedTeams.some(d => 
+                (d.id && d.id === t.id) || 
+                (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()) ||
+                (d.name && t.name && d.name.toLowerCase() === t.name.toLowerCase())
+              )
+            );
+            window.gameStore.save();
+          }
+          if (window.app && window.app.currentView === 'leaderboard') {
+            window.app.renderLeaderboard();
+          }
+        } catch (err) {}
         return;
       }
 

@@ -960,9 +960,24 @@ class SeekAndScanApp {
     const container = document.getElementById("leaderboard-table-body");
     if (!container) return;
 
+    // Check if current logged-in team was deleted by Admin
+    const currentTeam = window.gameStore.currentTeam;
+    if (currentTeam && (
+      currentTeam.role === 'deleted' || 
+      currentTeam.is_deleted || 
+      (window.gameStore.deletedTeams || []).some(d => 
+        (d.id && d.id === currentTeam.id) || 
+        (d.email && currentTeam.email && d.email.toLowerCase() === currentTeam.email.toLowerCase()) ||
+        (d.name && currentTeam.name && d.name.toLowerCase() === currentTeam.name.toLowerCase())
+      )
+    )) {
+      this.logout();
+      this.showToast("Your team registration was removed by tournament administration.", "warning");
+      return;
+    }
+
     // Disqualification notice banner handling
     const disqNotice = document.getElementById("leaderboard-disqualified-notice");
-    const currentTeam = window.gameStore.currentTeam;
     if (disqNotice) {
       if (currentTeam && currentTeam.is_disqualified) {
         disqNotice.classList.remove("hidden");
@@ -985,6 +1000,25 @@ class SeekAndScanApp {
       }
     }
 
+    this.renderLeaderboardTableRows();
+
+    // Trigger background sync with Supabase to ensure fresh remote data without deleted teams
+    if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase && !this._isLeaderboardSyncing) {
+      this._isLeaderboardSyncing = true;
+      window.gameStore.syncLiveTeamsFromSupabase().then(() => {
+        this._isLeaderboardSyncing = false;
+        this.renderLeaderboardTableRows();
+      }).catch(() => {
+        this._isLeaderboardSyncing = false;
+      });
+    }
+  }
+
+  renderLeaderboardTableRows() {
+    const container = document.getElementById("leaderboard-table-body");
+    if (!container) return;
+
+    const currentTeam = window.gameStore.currentTeam;
     const teams = window.gameStore.getLeaderboard();
 
     container.innerHTML = teams.map((team, idx) => {

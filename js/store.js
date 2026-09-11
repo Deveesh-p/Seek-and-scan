@@ -218,7 +218,7 @@ class GameStore {
       }
 
       const storedTeams = localStorage.getItem('seek_scan_teams');
-      this.teams = storedTeams ? JSON.parse(storedTeams) : this.getDefaultTeams();
+      this.teams = storedTeams ? JSON.parse(storedTeams) : [];
 
       // Ensure each team has an access_code in backend for admin, but preserve is_approved status
       this.teams.forEach(t => {
@@ -265,17 +265,24 @@ class GameStore {
       const storedDeleted = localStorage.getItem('seek_scan_deleted_teams');
       this.deletedTeams = storedDeleted ? JSON.parse(storedDeleted) : [];
 
-      // Immediately purge any deleted teams from this.teams
-      if (this.deletedTeams && Array.isArray(this.deletedTeams) && this.deletedTeams.length > 0) {
-        this.teams = this.teams.filter(t => {
-          if (t.role === 'admin') return true;
+      // Immediately purge any deleted teams and legacy demo teams from this.teams
+      this.teams = this.teams.filter(t => {
+        if (!t) return false;
+        if (t.role === 'admin') return true;
+        if (t.role === 'deleted' || t.is_deleted) return false;
+        if (t.id && String(t.id).startsWith('team-demo-')) return false;
+        if (t.email === 'phantoms@cyber.hunt' || t.email === 'hunters@cyber.hunt') return false;
+        if (t.name === 'Neon Phantoms' || t.name === 'Binary Hunters') return false;
+        if (this.deletedTeams && Array.isArray(this.deletedTeams) && this.deletedTeams.length > 0) {
           return !this.deletedTeams.some(d => 
             (d.id && d.id === t.id) || 
             (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()) ||
             (d.name && t.name && d.name.toLowerCase() === t.name.toLowerCase())
           );
-        });
-      }
+        }
+        return true;
+      });
+      localStorage.setItem('seek_scan_teams', JSON.stringify(this.teams));
 
       const session = localStorage.getItem('seek_scan_session');
       if (session) {
@@ -287,9 +294,10 @@ class GameStore {
         if (this.currentTeam && !this.isAdmin) {
           const isDel = this.deletedTeams.some(d => 
             (d.id && d.id === this.currentTeam.id) || 
-            (d.email && this.currentTeam.email && d.email.toLowerCase() === this.currentTeam.email.toLowerCase())
+            (d.email && this.currentTeam.email && d.email.toLowerCase() === this.currentTeam.email.toLowerCase()) ||
+            (d.name && this.currentTeam.name && d.name.toLowerCase() === this.currentTeam.name.toLowerCase())
           );
-          if (isDel) {
+          if (isDel || this.currentTeam.role === 'deleted' || this.currentTeam.is_deleted) {
             this.currentTeam = null;
             try { localStorage.removeItem('seek_scan_session'); } catch (e) {}
           }
@@ -312,7 +320,7 @@ class GameStore {
     } catch (e) {
       console.warn("Error loading store from local storage, using defaults", e);
       this.rounds = DEFAULT_ROUNDS;
-      this.teams = this.getDefaultTeams();
+      this.teams = [];
       this.cheatLogs = [];
       this.deletedTeams = [];
     }
@@ -323,57 +331,7 @@ class GameStore {
   }
 
   getDefaultTeams() {
-    const demo = [
-      {
-        id: "team-demo-1",
-        name: "Neon Phantoms",
-        leader_name: "Alex Chen",
-        members: "Alex Chen, Maya Patel, Liam Scott",
-        email: "phantoms@cyber.hunt",
-        password: "pass",
-        avatar: "neon-wolf",
-        role: "team",
-        access_code: "SEEK-1001",
-        is_approved: true,
-        current_round: 2,
-        questions_solved: 5,
-        score: 100,
-        elapsed_seconds: 340,
-        is_completed: false,
-        is_disqualified: false,
-        disqualification_reason: null,
-        created_at: new Date(Date.now() - 3600000).toISOString()
-      },
-      {
-        id: "team-demo-2",
-        name: "Binary Hunters",
-        leader_name: "Sarah Jenkins",
-        members: "Sarah J., David K.",
-        email: "hunters@cyber.hunt",
-        password: "pass",
-        avatar: "cyber-tiger",
-        role: "team",
-        access_code: "SEEK-1002",
-        is_approved: true,
-        current_round: 1,
-        questions_solved: 3,
-        score: 60,
-        elapsed_seconds: 185,
-        is_completed: false,
-        is_disqualified: false,
-        disqualification_reason: null,
-        created_at: new Date(Date.now() - 7200000).toISOString()
-      }
-    ];
-
-    if (this.deletedTeams && Array.isArray(this.deletedTeams)) {
-      return demo.filter(t => !this.deletedTeams.some(d => 
-        (d.id && d.id === t.id) || 
-        (d.email && d.email.toLowerCase() === t.email.toLowerCase()) || 
-        (d.name && d.name.toLowerCase() === t.name.toLowerCase())
-      ));
-    }
-    return demo;
+    return [];
   }
 
   save() {
@@ -493,9 +451,17 @@ class GameStore {
       return { team: this.currentTeam, isAdmin: true };
     }
 
+    // Reject deleted teams
+    const isDeletedTeam = (this.deletedTeams || []).some(d => 
+      (d.email && d.email.toLowerCase() === cleanEmail)
+    );
+    if (isDeletedTeam) {
+      throw new Error("This team has been removed from the tournament by the administrator.");
+    }
+
     // Normal team login
     const team = this.teams.find(t => t.email.toLowerCase() === cleanEmail && t.password === password);
-    if (!team) {
+    if (!team || team.role === 'deleted' || team.is_deleted) {
       throw new Error("Invalid team email or password.");
     }
 
@@ -692,7 +658,7 @@ class GameStore {
 
     // 3. AWAIT PERMANENT DELETION IN SUPABASE (teams, progress, and cheat logs)
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-      await window.supabaseClient.deleteTeam(delId, delEmail);
+      await window.supabaseClient.deleteTeam(delId, delEmail, delName);
       await window.supabaseClient.deleteCheatLogsForTeam(delId, delEmail);
     }
 
@@ -1185,107 +1151,201 @@ class GameStore {
     if (window.supabaseClient && (typeof window.supabaseClient.isConfigured === 'function' ? window.supabaseClient.isConfigured() : true)) {
       const liveTeams = await window.supabaseClient.fetchLiveTeams();
       if (liveTeams && Array.isArray(liveTeams)) {
-        const survivingRemote = [];
+        // Load latest deleted teams from storage
+        try {
+          const storedDeleted = localStorage.getItem('seek_scan_deleted_teams');
+          if (storedDeleted) {
+            this.deletedTeams = JSON.parse(storedDeleted);
+          }
+        } catch (e) {}
+        if (!this.deletedTeams) this.deletedTeams = [];
+
+        const deletedRemote = [];
+        const activeRemote = [];
 
         liveTeams.forEach(remoteTeam => {
-          // Check if this remote team was marked as deleted in Supabase or locally
-          const isDeleted = remoteTeam.role === 'deleted' || remoteTeam.is_deleted || (this.deletedTeams || []).some(d => 
+          if (!remoteTeam) return;
+          const isDeleted = remoteTeam.role === 'deleted' || remoteTeam.is_deleted;
+          if (isDeleted) {
+            deletedRemote.push(remoteTeam);
+          } else if (remoteTeam.role !== 'admin') {
+            activeRemote.push(remoteTeam);
+          }
+        });
+
+        // 1. Permanently record and purge all remote deleted teams
+        deletedRemote.forEach(remoteTeam => {
+          if (!this.deletedTeams.some(d => 
             (d.id && d.id === remoteTeam.id) || 
             (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
             (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
-          );
-
-          if (isDeleted) {
-            // Track in local deletedTeams so this client permanently remembers it
-            if (!this.deletedTeams) this.deletedTeams = [];
-            if (!this.deletedTeams.some(d => (d.id && d.id === remoteTeam.id) || (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()))) {
-              this.deletedTeams.push({
-                id: remoteTeam.id,
-                email: remoteTeam.email,
-                name: remoteTeam.name,
-                deleted_at: new Date().toISOString()
-              });
-            }
-            // Ensure removed from this.teams immediately
-            this.teams = this.teams.filter(t => t.id !== remoteTeam.id && (!t.email || !remoteTeam.email || t.email.toLowerCase() !== remoteTeam.email.toLowerCase()));
-            // Enforce deletion in Supabase if not yet marked as deleted
-            if (remoteTeam.role !== 'deleted') {
-              window.supabaseClient.deleteTeam(remoteTeam.id, remoteTeam.email);
-            }
-            return;
-          }
-
-          survivingRemote.push(remoteTeam);
-
-          const localIndex = this.teams.findIndex(t => t.id === remoteTeam.id || (t.email && remoteTeam.email && t.email.toLowerCase() === remoteTeam.email.toLowerCase()));
-          const merged = {
-            id: remoteTeam.id,
-            name: remoteTeam.name,
-            leader_name: remoteTeam.leader_name,
-            members: remoteTeam.members,
-            email: remoteTeam.email,
-            password: remoteTeam.password_hash,
-            avatar: remoteTeam.avatar || 'neon-wolf',
-            role: remoteTeam.role || 'team',
-            access_code: remoteTeam.access_code,
-            is_approved: Boolean(remoteTeam.is_approved),
-            is_disqualified: Boolean(remoteTeam.is_disqualified),
-            disqualification_reason: remoteTeam.disqualification_reason,
-            disqualified_at: remoteTeam.disqualified_at,
-            created_at: remoteTeam.created_at
-          };
-          if (localIndex !== -1) {
-            // Merge remote state while preserving local active gameplay progress
-            this.teams[localIndex] = {
-              current_round: 1,
-              score: 0,
-              station_unlocked: false,
-              ...this.teams[localIndex],
-              ...merged
-            };
-          } else {
-            this.teams.push({
-              current_round: 1,
-              score: 0,
-              station_unlocked: false,
-              ...merged
+          )) {
+            this.deletedTeams.push({
+              id: remoteTeam.id,
+              email: remoteTeam.email,
+              name: remoteTeam.name,
+              deleted_at: new Date().toISOString()
             });
           }
         });
 
-        const remoteIds = new Set(survivingRemote.map(r => r.id).filter(Boolean));
-        const remoteEmails = new Set(survivingRemote.map(r => (r.email || '').toLowerCase()).filter(Boolean));
+        // 2. Build quick lookup sets for active remote teams
+        const activeRemoteIds = new Set(activeRemote.map(r => r.id).filter(Boolean));
+        const activeRemoteEmails = new Set(activeRemote.map(r => (r.email || '').toLowerCase()).filter(Boolean));
+        const activeRemoteNames = new Set(activeRemote.map(r => (r.name || '').toLowerCase()).filter(Boolean));
 
-        // Ensure newly registered local teams are preserved and pushed to Supabase if not yet present
-        this.teams.forEach(localTeam => {
-          if (localTeam.role === 'admin' || localTeam.role === 'deleted' || localTeam.is_deleted || (localTeam.id && localTeam.id.startsWith('team-demo-'))) return;
-          const isExplicitlyDeleted = (this.deletedTeams || []).some(d => 
+        // 3. Prune local teams that were deleted remotely, are missing from Supabase, or are demo teams
+        this.teams = this.teams.filter(localTeam => {
+          if (!localTeam) return false;
+          if (localTeam.role === 'admin') return true;
+
+          // Drop demo teams immediately
+          if (localTeam.id && String(localTeam.id).startsWith('team-demo-')) return false;
+          if (localTeam.email === 'phantoms@cyber.hunt' || localTeam.email === 'hunters@cyber.hunt') return false;
+          if (localTeam.name === 'Neon Phantoms' || localTeam.name === 'Binary Hunters') return false;
+
+          // Check if recorded in deletedTeams
+          const isDeleted = this.deletedTeams.some(d => 
             (d.id && d.id === localTeam.id) || 
             (d.email && localTeam.email && d.email.toLowerCase() === localTeam.email.toLowerCase()) ||
             (d.name && localTeam.name && d.name.toLowerCase() === localTeam.name.toLowerCase())
           );
-          if (isExplicitlyDeleted) return;
+          if (isDeleted) return false;
 
-          const existsRemote = remoteIds.has(localTeam.id) || (localTeam.email && remoteEmails.has(localTeam.email.toLowerCase()));
-          if (!existsRemote) {
-            // Push missing registered team to Supabase so it syncs across all devices
+          // Check if exists in active remote teams
+          const existsInActive = activeRemoteIds.has(localTeam.id) || 
+            (localTeam.email && activeRemoteEmails.has(localTeam.email.toLowerCase())) ||
+            (localTeam.name && activeRemoteNames.has(localTeam.name.toLowerCase()));
+
+          if (existsInActive) return true;
+
+          // If not in active remote, is it a brand-new offline registration from this session?
+          const isCurrentSessionNew = this.currentTeam && 
+            (this.currentTeam.id === localTeam.id || (this.currentTeam.email && localTeam.email && this.currentTeam.email.toLowerCase() === localTeam.email.toLowerCase())) &&
+            localTeam.created_at && (Date.now() - new Date(localTeam.created_at).getTime() < 10 * 60 * 1000);
+
+          if (isCurrentSessionNew) {
+            // Push newly registered team to Supabase
             window.supabaseClient.insertTeam(localTeam);
+            return true;
+          }
+
+          // Otherwise, this team was deleted by Admin or is stale: purge it!
+          this.deletedTeams.push({
+            id: localTeam.id,
+            email: localTeam.email,
+            name: localTeam.name,
+            deleted_at: new Date().toISOString()
+          });
+          return false;
+        });
+
+        // 4. Merge all active remote teams into this.teams with their live progress
+        activeRemote.forEach(remoteTeam => {
+          // Check if marked deleted locally
+          const isLocallyDeleted = this.deletedTeams.some(d => 
+            (d.id && d.id === remoteTeam.id) || 
+            (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
+            (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
+          );
+          if (isLocallyDeleted) return;
+
+          const prog = Array.isArray(remoteTeam.team_progress) ? remoteTeam.team_progress[0] : remoteTeam.team_progress;
+          const remoteScore = (prog && typeof prog.score === 'number') ? prog.score : 0;
+          const remoteRound = (prog && typeof prog.current_round === 'number') ? prog.current_round : 1;
+          const remoteSolved = (prog && typeof prog.questions_solved === 'number') ? prog.questions_solved : 0;
+          const remoteElapsed = (prog && typeof prog.elapsed_seconds === 'number') ? prog.elapsed_seconds : 0;
+          const remoteCompleted = Boolean((prog && (prog.round_3_completed || prog.completed_at)));
+
+          const localIndex = this.teams.findIndex(t => 
+            t.id === remoteTeam.id || 
+            (t.email && remoteTeam.email && t.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
+            (t.name && remoteTeam.name && t.name.toLowerCase() === remoteTeam.name.toLowerCase())
+          );
+
+          const isCurrentActive = this.currentTeam && (
+            this.currentTeam.id === remoteTeam.id || 
+            (this.currentTeam.email && remoteTeam.email && this.currentTeam.email.toLowerCase() === remoteTeam.email.toLowerCase())
+          );
+
+          if (localIndex !== -1) {
+            const local = this.teams[localIndex];
+            // If current playing team on this device, don't regress active in-memory gameplay score
+            const scoreToUse = isCurrentActive ? Math.max(local.score || 0, remoteScore) : remoteScore;
+            const roundToUse = isCurrentActive ? Math.max(local.current_round || 1, remoteRound) : remoteRound;
+            const solvedToUse = isCurrentActive ? Math.max(local.questions_solved || 0, remoteSolved) : remoteSolved;
+            const completedToUse = isCurrentActive ? (local.is_completed || remoteCompleted) : remoteCompleted;
+
+            this.teams[localIndex] = {
+              ...local,
+              id: remoteTeam.id,
+              name: remoteTeam.name,
+              leader_name: remoteTeam.leader_name,
+              members: remoteTeam.members,
+              email: remoteTeam.email,
+              password: remoteTeam.password_hash || local.password,
+              avatar: remoteTeam.avatar || local.avatar || 'neon-wolf',
+              role: remoteTeam.role || 'team',
+              access_code: remoteTeam.access_code || local.access_code,
+              is_approved: Boolean(remoteTeam.is_approved),
+              is_disqualified: Boolean(remoteTeam.is_disqualified),
+              disqualification_reason: remoteTeam.disqualification_reason,
+              disqualified_at: remoteTeam.disqualified_at,
+              created_at: remoteTeam.created_at || local.created_at,
+              score: scoreToUse,
+              current_round: roundToUse,
+              questions_solved: solvedToUse,
+              elapsed_seconds: isCurrentActive ? (local.elapsed_seconds || remoteElapsed) : remoteElapsed,
+              is_completed: completedToUse
+            };
+          } else {
+            this.teams.push({
+              id: remoteTeam.id,
+              name: remoteTeam.name,
+              leader_name: remoteTeam.leader_name,
+              members: remoteTeam.members,
+              email: remoteTeam.email,
+              password: remoteTeam.password_hash,
+              avatar: remoteTeam.avatar || 'neon-wolf',
+              role: remoteTeam.role || 'team',
+              access_code: remoteTeam.access_code,
+              is_approved: Boolean(remoteTeam.is_approved),
+              is_disqualified: Boolean(remoteTeam.is_disqualified),
+              disqualification_reason: remoteTeam.disqualification_reason,
+              disqualified_at: remoteTeam.disqualified_at,
+              created_at: remoteTeam.created_at,
+              current_round: remoteRound,
+              questions_solved: remoteSolved,
+              score: remoteScore,
+              elapsed_seconds: remoteElapsed,
+              is_completed: remoteCompleted,
+              station_unlocked: false
+            });
           }
         });
 
-        // Only prune teams that were explicitly deleted by admin
-        if (this.deletedTeams && Array.isArray(this.deletedTeams) && this.deletedTeams.length > 0) {
-          this.teams = this.teams.filter(t => {
-            if (t.role === 'admin') return true;
-            return !this.deletedTeams.some(d => 
-              (d.id && d.id === t.id) || 
-              (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()) ||
-              (d.name && t.name && d.name.toLowerCase() === t.name.toLowerCase())
-            );
-          });
+        // 5. If current logged-in team was deleted, handle logout
+        if (this.currentTeam && !this.isAdmin) {
+          const currentDeleted = this.deletedTeams.some(d => 
+            (d.id && d.id === this.currentTeam.id) || 
+            (d.email && this.currentTeam.email && d.email.toLowerCase() === this.currentTeam.email.toLowerCase()) ||
+            (d.name && this.currentTeam.name && d.name.toLowerCase() === this.currentTeam.name.toLowerCase())
+          );
+          if (currentDeleted || this.currentTeam.role === 'deleted' || this.currentTeam.is_deleted) {
+            this.currentTeam = null;
+            try {
+              localStorage.removeItem('seek_scan_session');
+            } catch (e) {}
+            if (window.app && typeof window.app.logout === 'function') {
+              window.app.logout();
+              if (typeof window.app.showToast === 'function') {
+                window.app.showToast("Your team registration was removed by tournament administration.", "warning");
+              }
+            }
+          }
         }
 
-        // Purge cheat logs for teams that are no longer in this.teams
+        // 6. Purge cheat logs for teams that no longer exist
         if (this.cheatLogs) {
           const validIds = new Set(this.teams.map(t => t.id));
           const validNames = new Set(this.teams.map(t => (t.name || '').toLowerCase()));
@@ -1423,10 +1483,20 @@ class GameStore {
 
   // --- Leaderboard Calculation ---
   getLeaderboard() {
+    // Reload deleted teams from localStorage in case updated in another tab
+    try {
+      const storedDeleted = localStorage.getItem('seek_scan_deleted_teams');
+      if (storedDeleted) {
+        this.deletedTeams = JSON.parse(storedDeleted);
+      }
+    } catch (e) {}
+
     return [...this.teams].filter(t => {
       if (!t) return false;
       if (t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
-      if (t.name === 'System Admin' || t.name === 'Admin') return false;
+      if (t.name === 'System Admin' || t.name === 'Admin' || t.name === 'Neon Phantoms' || t.name === 'Binary Hunters') return false;
+      if (t.email === 'phantoms@cyber.hunt' || t.email === 'hunters@cyber.hunt') return false;
+      if (t.id && String(t.id).startsWith('team-demo-')) return false;
 
       // Filter out any teams recorded in deletedTeams
       if (this.deletedTeams && Array.isArray(this.deletedTeams) && this.deletedTeams.length > 0) {

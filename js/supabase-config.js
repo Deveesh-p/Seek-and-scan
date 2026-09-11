@@ -91,15 +91,14 @@ class SupabaseManager {
     try {
       const { data, error } = await this.client
         .from("teams")
-        .select("*")
-        .neq("role", "deleted")
+        .select("*, team_progress(*)")
         .order("created_at", { ascending: false });
 
       if (error) {
         console.warn("Supabase fetchLiveTeams error:", error);
         return null;
       }
-      return (data || []).filter(t => t.role !== 'deleted' && t.role !== 'admin' && !t.is_deleted);
+      return data || [];
     } catch (e) {
       console.warn("Supabase fetchLiveTeams exception:", e);
       return null;
@@ -186,6 +185,10 @@ class SupabaseManager {
           current_round: teamData.current_round || 1,
           questions_solved: teamData.questions_solved || 0,
           score: teamData.score || 0,
+          round_1_completed: Boolean(teamData.current_round > 1 || teamData.is_completed),
+          round_2_completed: Boolean(teamData.current_round > 2 || teamData.is_completed),
+          round_3_completed: Boolean(teamData.is_completed),
+          completed_at: teamData.is_completed ? new Date().toISOString() : null,
           elapsed_seconds: teamData.elapsed_seconds || 0,
           updated_at: new Date().toISOString()
         }, { onConflict: 'team_id' });
@@ -251,7 +254,7 @@ class SupabaseManager {
     }
   }
 
-  async deleteTeam(teamId, teamEmail = null) {
+  async deleteTeam(teamId, teamEmail = null, teamName = null) {
     if (!this.client) return null;
     try {
       let resolvedId = null;
@@ -264,6 +267,16 @@ class SupabaseManager {
       if (!resolvedId && teamEmail) {
         try {
           const { data } = await this.client.from("teams").select("id").eq("email", teamEmail).maybeSingle();
+          if (data && data.id) {
+            resolvedId = data.id;
+          }
+        } catch (lookupErr) {}
+      }
+
+      // If still no valid UUID yet, resolve by name in Supabase
+      if (!resolvedId && teamName) {
+        try {
+          const { data } = await this.client.from("teams").select("id").eq("name", teamName).maybeSingle();
           if (data && data.id) {
             resolvedId = data.id;
           }
@@ -286,6 +299,9 @@ class SupabaseManager {
       if (teamEmail) {
         await this.client.from("teams").update(softDeletePayload).eq("email", teamEmail);
       }
+      if (teamName) {
+        await this.client.from("teams").update(softDeletePayload).eq("name", teamName);
+      }
 
       // 2. ALSO ATTEMPT HARD DELETE FROM SUPABASE
       let deleteResult = null;
@@ -295,8 +311,11 @@ class SupabaseManager {
       if (teamEmail) {
         deleteResult = await this.client.from("teams").delete().eq("email", teamEmail);
       }
+      if (teamName) {
+        await this.client.from("teams").delete().eq("name", teamName);
+      }
 
-      console.log("✅ Team and associated records deleted/marked removed from Supabase:", resolvedId || teamEmail);
+      console.log("✅ Team and associated records deleted/marked removed from Supabase:", resolvedId || teamEmail || teamName);
       return deleteResult;
     } catch (e) {
       console.warn("Supabase deleteTeam exception:", e);
