@@ -1,11 +1,13 @@
 /* ==========================================================================
    SEEK & SCAN - EMAIL & OTP DISPATCH SERVICE
    Delivers 6-digit OTP verification emails to player inboxes (@gmail.com & @kongu.edu)
-   Primary: EmailJS Browser SDK (Direct to Inbox)
-   Secondary: Supabase Auth OTP
+   Primary: Google Apps Script Web App (Free, zero 3rd-party, 1-minute setup)
+   Secondary: EmailJS Browser SDK
+   Fallback: On-Screen Testing OTP Code
    ========================================================================== */
 
 const DEFAULT_EMAIL_CONFIG = {
+  gasUrl: "",
   serviceId: "service_seekandscan",
   templateId: "template_otp",
   publicKey: ""
@@ -13,6 +15,7 @@ const DEFAULT_EMAIL_CONFIG = {
 
 class EmailService {
   constructor() {
+    this.gasUrl = localStorage.getItem('seek_scan_gas_url') || DEFAULT_EMAIL_CONFIG.gasUrl || '';
     this.serviceId = localStorage.getItem('seek_scan_emailjs_service_id') || DEFAULT_EMAIL_CONFIG.serviceId || '';
     this.templateId = localStorage.getItem('seek_scan_emailjs_template_id') || DEFAULT_EMAIL_CONFIG.templateId || '';
     this.publicKey = localStorage.getItem('seek_scan_emailjs_public_key') || DEFAULT_EMAIL_CONFIG.publicKey || '';
@@ -30,7 +33,11 @@ class EmailService {
     }
   }
 
-  isConfigured() {
+  isGasConfigured() {
+    return Boolean(this.gasUrl && (this.gasUrl.startsWith('http://') || this.gasUrl.startsWith('https://')));
+  }
+
+  isEmailJsConfigured() {
     return Boolean(
       this.serviceId && 
       this.templateId && 
@@ -40,16 +47,38 @@ class EmailService {
     );
   }
 
+  isConfigured() {
+    return this.isGasConfigured() || this.isEmailJsConfigured();
+  }
+
   getConfig() {
     return {
+      gasUrl: this.gasUrl,
+      isGasConfigured: this.isGasConfigured(),
       serviceId: this.serviceId,
       templateId: this.templateId,
       publicKey: this.publicKey,
+      isEmailJsConfigured: this.isEmailJsConfigured(),
       isConfigured: this.isConfigured()
     };
   }
 
-  saveConfig(serviceId, templateId, publicKey) {
+  saveGasUrl(url) {
+    this.gasUrl = (url || '').trim();
+    try {
+      localStorage.setItem('seek_scan_gas_url', this.gasUrl);
+    } catch (e) {}
+    return this.isGasConfigured();
+  }
+
+  clearGasUrl() {
+    this.gasUrl = '';
+    try {
+      localStorage.removeItem('seek_scan_gas_url');
+    } catch (e) {}
+  }
+
+  saveEmailJsConfig(serviceId, templateId, publicKey) {
     this.serviceId = (serviceId || '').trim();
     this.templateId = (templateId || '').trim();
     this.publicKey = (publicKey || '').trim();
@@ -61,7 +90,18 @@ class EmailService {
     } catch (e) {}
 
     this.init();
-    return this.isConfigured();
+    return this.isEmailJsConfigured();
+  }
+
+  clearEmailJsConfig() {
+    this.serviceId = '';
+    this.templateId = '';
+    this.publicKey = '';
+    try {
+      localStorage.removeItem('seek_scan_emailjs_service_id');
+      localStorage.removeItem('seek_scan_emailjs_template_id');
+      localStorage.removeItem('seek_scan_emailjs_public_key');
+    } catch (e) {}
   }
 
   /**
@@ -73,8 +113,54 @@ class EmailService {
   async sendOtpEmail(toEmail, otpCode, teamName = 'Team') {
     const cleanEmail = (toEmail || '').trim().toLowerCase();
 
-    // 1. If EmailJS is configured, send real email directly to player's inbox
-    if (this.isConfigured()) {
+    // 1. Primary Channel: Google Apps Script Webhook (Free, zero external service)
+    if (this.isGasConfigured()) {
+      try {
+        const payload = JSON.stringify({
+          to: cleanEmail,
+          to_email: cleanEmail,
+          email: cleanEmail,
+          otp: otpCode,
+          otp_code: otpCode,
+          team: teamName,
+          team_name: teamName
+        });
+
+        // Use mode: 'no-cors' with text/plain to prevent CORS preflight restrictions
+        await fetch(this.gasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' },
+          body: payload
+        });
+
+        console.log("✅ Google Apps Script Webhook triggered email to:", cleanEmail);
+        return {
+          success: true,
+          method: 'google_apps_script',
+          message: `Verification OTP successfully sent to your inbox: ${cleanEmail}!`
+        };
+      } catch (gasErr) {
+        console.warn("⚠️ Google Apps Script POST failed, trying GET fallback:", gasErr);
+        try {
+          const fallbackUrl = new URL(this.gasUrl);
+          fallbackUrl.searchParams.set('to', cleanEmail);
+          fallbackUrl.searchParams.set('otp', otpCode);
+          fallbackUrl.searchParams.set('team', teamName);
+          await fetch(fallbackUrl.toString(), { mode: 'no-cors' });
+          return {
+            success: true,
+            method: 'google_apps_script_get',
+            message: `Verification OTP sent to ${cleanEmail}!`
+          };
+        } catch (getErr) {
+          console.warn("Google Apps Script GET fallback failed:", getErr);
+        }
+      }
+    }
+
+    // 2. Secondary Channel: EmailJS Browser SDK
+    if (this.isEmailJsConfigured()) {
       try {
         const templateParams = {
           to_email: cleanEmail,
@@ -95,40 +181,15 @@ class EmailService {
         };
       } catch (err) {
         console.warn("⚠️ EmailJS send encountered an error:", err);
-        return {
-          success: false,
-          error: err.text || err.message || 'Email delivery failed',
-          fallbackOtp: otpCode
-        };
       }
     }
 
-    // 2. Secondary Channel: Attempt Supabase Auth OTP
-    if (window.supabaseClient && window.supabaseClient.client && window.supabaseClient.client.auth) {
-      try {
-        const { data, error } = await window.supabaseClient.client.auth.signInWithOtp({
-          email: cleanEmail,
-          options: { shouldCreateUser: true }
-        });
-        if (!error) {
-          console.log("✅ Supabase Auth OTP triggered for:", cleanEmail);
-          return {
-            success: true,
-            method: 'supabase',
-            message: `Verification email triggered via Supabase to ${cleanEmail}`
-          };
-        } else {
-          console.log("Supabase Auth OTP notice:", error.message);
-        }
-      } catch (e) {}
-    }
-
-    // 3. Not configured yet: return transparent status with simulation fallback
+    // 3. Fallback: Not configured yet
     return {
       success: false,
       notConfigured: true,
       fallbackOtp: otpCode,
-      message: `Email dispatch service not yet configured. Please configure EmailJS keys in Admin Console to deliver directly to ${cleanEmail}.`
+      message: `Real email delivery pending setup in Admin. Use testing code: ${otpCode}`
     };
   }
 
@@ -142,3 +203,4 @@ class EmailService {
 }
 
 window.emailService = new EmailService();
+

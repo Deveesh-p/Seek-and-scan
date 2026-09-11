@@ -280,8 +280,8 @@
       </div>
     </section>
 
-    <!-- SECTION 3B: EMAIL & OTP DISPATCH SETTINGS (EMAILJS / REAL INBOX DELIVERY) -->
-    <section id="admin-section-email" class="cyber-card p-5 border-emerald-500/40 space-y-4">
+    <!-- SECTION 3B: EMAIL & OTP DISPATCH SETTINGS (GOOGLE APPS SCRIPT / EMAILJS) -->
+    <section id="admin-section-email" class="cyber-card p-5 border-emerald-500/40 space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
         <div>
           <h3 class="font-cyber text-base font-bold text-white flex items-center gap-2">
@@ -293,66 +293,125 @@
         </div>
         <div class="flex items-center gap-2">
           <span id="admin-email-status-badge" class="px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-amber-500/50 bg-amber-950/40 text-amber-300">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span> Service: Not Configured
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span> Email Service: Not Configured
           </span>
         </div>
       </div>
 
+      <!-- MAIN ROW: GOOGLE APPS SCRIPT (RECOMMENDED) & LIVE TEST DISPATCHER -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Configuration Form -->
-        <form onsubmit="window.adminPage.handleSaveEmailConfig(event)" class="space-y-3">
-          <div class="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
-            <i data-lucide="key" class="w-3.5 h-3.5"></i> EmailJS Free API Credentials
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-[11px] font-mono text-gray-400 mb-1">SERVICE ID *</label>
-              <input type="text" id="admin-email-service-id" class="cyber-input text-xs font-mono" placeholder="e.g. service_xxxxxxx">
+        
+        <!-- OPTION 1: GOOGLE APPS SCRIPT WEB APP (RECOMMENDED) -->
+        <div class="space-y-3 bg-emerald-950/20 p-4 rounded-lg border border-emerald-500/40">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+              <i data-lucide="zap" class="w-4 h-4 text-emerald-400"></i> Option 1: Google Apps Script (Recommended)
             </div>
-            <div>
-              <label class="block text-[11px] font-mono text-gray-400 mb-1">TEMPLATE ID *</label>
-              <input type="text" id="admin-email-template-id" class="cyber-input text-xs font-mono" placeholder="e.g. template_xxxxxxx">
-            </div>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+              100% FREE • ZERO 3RD-PARTY
+            </span>
           </div>
-          <div>
-            <label class="block text-[11px] font-mono text-gray-400 mb-1">PUBLIC KEY (USER ID) *</label>
-            <input type="text" id="admin-email-public-key" class="cyber-input text-xs font-mono" placeholder="e.g. user_xxxxxxxxxxxxx or 7xAbc...">
-          </div>
-          <div class="flex items-center gap-2 pt-1">
-            <button type="submit" class="btn-cyber text-xs py-2 px-4 flex-1">
-              <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Email Settings
-            </button>
-            <button type="button" onclick="window.adminPage.handleClearEmailConfig()" class="py-2 px-3 rounded border border-gray-700 text-gray-400 hover:text-white text-xs font-mono transition-colors">
-              Clear
-            </button>
-          </div>
-        </form>
-
-        <!-- Test Dispatcher & Quick Guide -->
-        <div class="space-y-3 bg-black/40 p-4 rounded-lg border border-gray-800">
-          <div class="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
-            <i data-lucide="send" class="w-3.5 h-3.5"></i> Test Real Delivery to Your Inbox
-          </div>
-          <p class="text-[11px] text-gray-400 font-mono">
-            Enter your personal email to verify that OTP messages actually arrive in your Gmail / Kongu inbox.
+          <p class="text-[11px] text-gray-300 font-mono leading-relaxed">
+            Sends real OTP emails directly from your own Gmail / @kongu.edu Google account with 0 third-party signups.
           </p>
-          <div class="flex gap-2">
-            <input type="email" id="admin-email-test-input" class="cyber-input text-xs font-mono flex-1" placeholder="yourname@gmail.com or rollno@kongu.edu">
-            <button type="button" id="btn-admin-send-test-email" onclick="window.adminPage.handleSendTestEmail()" class="btn-cyber text-xs py-2 px-3 whitespace-nowrap">
-              <i data-lucide="mail-check" class="w-3.5 h-3.5"></i> Send Test OTP
-            </button>
-          </div>
-          <div id="admin-email-test-result" class="hidden p-2 rounded text-[11px] font-mono"></div>
 
-          <!-- Free 1-Minute Setup Guide -->
-          <div class="pt-2 border-t border-gray-800/80 text-[10px] font-mono text-gray-400 space-y-1">
-            <div class="font-bold text-gray-300">💡 Free 1-Minute EmailJS Setup (200 free emails/month):</div>
-            <div>1. Create a free account at <a href="https://www.emailjs.com/" target="_blank" class="text-emerald-400 underline">emailjs.com</a></div>
-            <div>2. In <strong>Email Services</strong>, add <em>Gmail</em> or <em>Outlook</em> and connect your account. (Copies Service ID)</div>
-            <div>3. In <strong>Email Templates</strong>, create a template with <code class="text-amber-300">{{otp_code}}</code> in the body. (Copies Template ID)</div>
-            <div>4. In <strong>Account &rarr; API Keys</strong>, copy your <em>Public Key</em> and paste above!</div>
+          <form onsubmit="window.adminPage.handleSaveGasConfig(event)" class="space-y-3">
+            <div>
+              <label class="block text-[11px] font-mono text-gray-400 mb-1">WEB APP URL (EXEC ENDPOINT) *</label>
+              <input type="url" id="admin-email-gas-url" class="cyber-input text-xs font-mono" placeholder="https://script.google.com/macros/s/.../exec">
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="submit" class="btn-cyber text-xs py-2 px-4 flex-1 border-emerald-500/60 text-emerald-300">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Google Mailer URL
+              </button>
+              <button type="button" onclick="window.adminPage.handleClearGasConfig()" class="py-2 px-3 rounded border border-gray-700 text-gray-400 hover:text-white text-xs font-mono transition-colors">
+                Clear
+              </button>
+            </div>
+          </form>
+
+          <!-- 4-Step Instructions -->
+          <div class="pt-2 border-t border-emerald-500/20 text-[10px] font-mono text-gray-300 space-y-1.5">
+            <div class="font-bold text-white flex items-center gap-1">
+              <span>📋 1-Minute Setup Instructions:</span>
+              <a href="https://script.google.com" target="_blank" class="text-emerald-400 hover:underline inline-flex items-center gap-0.5 ml-auto">
+                Open script.google.com <i data-lucide="external-link" class="w-3 h-3"></i>
+              </a>
+            </div>
+            <div>1. Go to <a href="https://script.google.com" target="_blank" class="text-cyan underline font-bold">script.google.com</a> &rarr; click <strong>"New project"</strong>.</div>
+            <div>2. Delete sample code, paste the script below, and click <strong>Save</strong> (Ctrl+S).</div>
+            <div>3. Click <strong>Deploy</strong> &rarr; <strong>New deployment</strong> &rarr; select <strong>Web app</strong>.</div>
+            <div class="pl-3 text-emerald-300">• Execute as: <strong>Me</strong> &nbsp;|&nbsp; Who has access: <strong>Anyone</strong></div>
+            <div>4. Click <strong>Deploy</strong> &rarr; copy the <strong>Web app URL</strong> &rarr; paste above &rarr; click <strong>Save</strong>!</div>
+          </div>
+
+          <!-- Copy Script Box -->
+          <div class="pt-1">
+            <div class="flex items-center justify-between text-[11px] font-mono text-gray-400 mb-1">
+              <span>Google Apps Script Code:</span>
+              <button type="button" onclick="window.adminPage.copyGasScriptCode()" id="btn-copy-gas-code" class="text-[10px] text-amber-400 hover:underline flex items-center gap-1 font-mono">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy Script Code
+              </button>
+            </div>
+            <textarea id="admin-gas-code-sample" readonly rows="4" class="w-full bg-black/90 border border-gray-800 rounded p-2 text-[10px] font-mono text-gray-400 leading-tight select-all focus:outline-none focus:border-emerald-500"></textarea>
           </div>
         </div>
+
+        <!-- RIGHT COLUMN: TEST DISPATCHER & OPTION 2 (EMAILJS) -->
+        <div class="space-y-4">
+          <!-- LIVE TEST DISPATCHER -->
+          <div class="space-y-3 bg-black/50 p-4 rounded-lg border border-gray-800">
+            <div class="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+              <i data-lucide="send" class="w-3.5 h-3.5"></i> Test Real Delivery to Your Inbox
+            </div>
+            <p class="text-[11px] text-gray-400 font-mono">
+              Send an immediate test verification OTP email to your own Gmail or @kongu.edu inbox to confirm live delivery.
+            </p>
+            <div class="flex gap-2">
+              <input type="email" id="admin-email-test-input" class="cyber-input text-xs font-mono flex-1" placeholder="yourname@gmail.com or rollno@kongu.edu">
+              <button type="button" id="btn-admin-send-test-email" onclick="window.adminPage.handleSendTestEmail()" class="btn-cyber text-xs py-2 px-3 whitespace-nowrap">
+                <i data-lucide="mail-check" class="w-3.5 h-3.5"></i> Send Test OTP
+              </button>
+            </div>
+            <div id="admin-email-test-result" class="hidden p-2 rounded text-[11px] font-mono"></div>
+          </div>
+
+          <!-- OPTION 2: EMAILJS (ALTERNATIVE) -->
+          <details class="bg-black/30 p-3 rounded-lg border border-gray-800/80 group">
+            <summary class="text-xs font-mono text-gray-400 font-bold cursor-pointer flex items-center justify-between select-none">
+              <span class="flex items-center gap-1.5">
+                <i data-lucide="key" class="w-3.5 h-3.5 text-cyan"></i> Option 2: EmailJS API (Alternative)
+              </span>
+              <span class="text-[10px] text-gray-500 group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            
+            <form onsubmit="window.adminPage.handleSaveEmailJsConfig(event)" class="space-y-3 pt-3 mt-2 border-t border-gray-800/60">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-mono text-gray-400 mb-1">SERVICE ID</label>
+                  <input type="text" id="admin-email-service-id" class="cyber-input text-xs font-mono" placeholder="service_xxxxxxx">
+                </div>
+                <div>
+                  <label class="block text-[11px] font-mono text-gray-400 mb-1">TEMPLATE ID</label>
+                  <input type="text" id="admin-email-template-id" class="cyber-input text-xs font-mono" placeholder="template_xxxxxxx">
+                </div>
+              </div>
+              <div>
+                <label class="block text-[11px] font-mono text-gray-400 mb-1">PUBLIC KEY</label>
+                <input type="text" id="admin-email-public-key" class="cyber-input text-xs font-mono" placeholder="user_xxxxxxxx or public key">
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="submit" class="btn-cyber text-xs py-1.5 px-3 flex-1">
+                  Save EmailJS Settings
+                </button>
+                <button type="button" onclick="window.adminPage.handleClearEmailJsConfig()" class="py-1.5 px-3 rounded border border-gray-700 text-gray-400 hover:text-white text-xs font-mono">
+                  Clear
+                </button>
+              </div>
+            </form>
+          </details>
+        </div>
+
       </div>
     </section>
 

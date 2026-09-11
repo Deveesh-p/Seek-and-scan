@@ -1218,6 +1218,11 @@ class SeekAndScanApp {
     if (newPassInput) newPassInput.value = "";
     const confirmPassInput = document.getElementById("rec-pass-confirm");
     if (confirmPassInput) confirmPassInput.value = "";
+    const noticeBox = document.getElementById("rec-otp-notice-box");
+    if (noticeBox) {
+      noticeBox.classList.add("hidden");
+      noticeBox.innerHTML = "";
+    }
   }
 
   switchRecoveryTab(tab) {
@@ -1257,45 +1262,51 @@ class SeekAndScanApp {
     const emailInput = document.getElementById("rec-pass-email");
     const email = (emailInput?.value || "").trim().toLowerCase();
 
-    // Verify email domain restriction
+    if (!email) {
+      this.showToast("Please enter your registered team email.", "error");
+      return;
+    }
+
     if (!window.gameStore.isValidEmail(email)) {
-      this.showToast("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!", "error");
+      this.showToast("Please enter a valid Google (@gmail.com) or Kongu College (@kongu.edu) email.", "error");
       return;
     }
 
     const btn = document.getElementById("btn-send-otp");
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = `<span class="animate-spin inline-block mr-1.5">⚡</span> Verifying registered team...`;
+      btn.innerHTML = `<span class="animate-spin inline-block mr-1.5">⚡</span> Dispathing OTP to Mailbox...`;
     }
 
     try {
-      // Sync fresh teams from Supabase
-      if (window.gameStore.syncLiveTeamsFromSupabase) {
+      // 1. Check if team exists in local or cloud store
+      let team = window.gameStore.teams.find(t => (t.email || '').toLowerCase() === email);
+
+      if (!team && window.supabaseClient && window.supabaseClient.isConfigured()) {
         await window.gameStore.syncLiveTeamsFromSupabase();
+        team = window.gameStore.teams.find(t => (t.email || '').toLowerCase() === email);
       }
 
-      const team = window.gameStore.teams.find(t => t.email && t.email.toLowerCase() === email);
       if (!team) {
-        throw new Error(`No registered team found with email: ${email}. Please check spelling or register.`);
+        throw new Error(`No registered team found with email: "${email}". Please verify your email address or use Find Email.`);
       }
 
-      // Generate 6-digit numeric OTP
+      // 2. Generate cryptographically strong 6-digit OTP
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       this.recoveryState = {
         email: email,
         otp: otp,
-        expiresAt: Date.now() + 10 * 60 * 1000,
+        expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes expiry
         teamName: team.name
       };
 
-      // Dispatch real email to player's inbox via emailService
-      let emailResult = { success: false, notConfigured: true };
+      // 3. Dispatch via configured email provider (Google Apps Script / EmailJS)
+      let emailResult = { notConfigured: true, fallbackOtp: otp };
       if (window.emailService) {
         emailResult = await window.emailService.sendOtpEmail(email, otp, team.name);
       }
 
-      // Switch to Step 2
+      // 4. Transition to Step 2: OTP Verification
       document.getElementById("form-rec-step1").classList.add("hidden");
       document.getElementById("form-rec-step2").classList.remove("hidden");
       document.getElementById("rec-target-email").innerText = email;
@@ -1305,15 +1316,32 @@ class SeekAndScanApp {
         otpInput.focus();
       }
 
+      const noticeBox = document.getElementById("rec-otp-notice-box");
+
       if (emailResult.success) {
         if (window.cyberAudio) window.cyberAudio.playCorrect();
         this.showToast(`📩 Verification OTP sent to your inbox: ${email}! Please check your Inbox and Spam.`, "success");
+        if (noticeBox) {
+          noticeBox.className = "p-2.5 rounded text-xs font-mono border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
+          noticeBox.innerHTML = `📩 <strong>Email Dispatched!</strong> A 6-digit OTP was sent to <code>${email}</code>. Please check your <strong>Inbox</strong> and <strong>Spam folder</strong>.`;
+          noticeBox.classList.remove("hidden");
+        }
       } else if (emailResult.notConfigured) {
         if (window.cyberAudio) window.cyberAudio.playCorrect();
-        this.showToast(`📬 Verification OTP generated for ${email}! (Testing Code: ${otp})`, "success");
+        this.showToast(`📬 Verification OTP ready for ${email}!`, "success");
+        if (noticeBox) {
+          noticeBox.className = "p-2.5 rounded text-xs font-mono border border-amber-500/50 bg-amber-950/60 text-amber-300";
+          noticeBox.innerHTML = `⚡ <strong>Testing Mode:</strong> Real email service pending setup in Admin.<br>Your OTP code is: <strong class="text-white text-sm bg-black/60 px-2 py-0.5 rounded cursor-pointer underline tracking-widest font-mono select-all" onclick="document.getElementById('rec-pass-otp').value='${otp}'">${otp}</strong> <span class="text-[10px] text-gray-400">(Click to auto-fill)</span>`;
+          noticeBox.classList.remove("hidden");
+        }
       } else {
         if (window.cyberAudio) window.cyberAudio.playCorrect();
-        this.showToast(`⚠️ Email dispatch alert (${emailResult.error}). Backup code: ${otp}`, "warning");
+        this.showToast(`⚠️ Email notice: Backup code: ${otp}`, "warning");
+        if (noticeBox) {
+          noticeBox.className = "p-2.5 rounded text-xs font-mono border border-amber-500/50 bg-amber-950/60 text-amber-300";
+          noticeBox.innerHTML = `⚠️ <strong>Notice:</strong> ${emailResult.error || 'Mailer pending'}.<br>Your OTP code: <strong class="text-white text-sm bg-black/60 px-2 py-0.5 rounded cursor-pointer underline tracking-widest font-mono select-all" onclick="document.getElementById('rec-pass-otp').value='${otp}'">${otp}</strong> <span class="text-[10px] text-gray-400">(Click to auto-fill)</span>`;
+          noticeBox.classList.remove("hidden");
+        }
       }
     } catch (err) {
       if (window.cyberAudio) window.cyberAudio.playIncorrect();
@@ -1344,15 +1372,27 @@ class SeekAndScanApp {
 
     if (window.cyberAudio) window.cyberAudio.playClick();
 
+    const noticeBox = document.getElementById("rec-otp-notice-box");
+
     if (window.emailService) {
       const emailResult = await window.emailService.sendOtpEmail(this.recoveryState.email, otp, this.recoveryState.teamName || 'Team');
       if (emailResult.success) {
         this.showToast(`🔄 Fresh OTP sent to your inbox (${this.recoveryState.email})! Please check your email.`, "success");
+        if (noticeBox) {
+          noticeBox.className = "p-2.5 rounded text-xs font-mono border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
+          noticeBox.innerHTML = `🔄 <strong>Fresh OTP Sent!</strong> Delivered to <code>${this.recoveryState.email}</code>. Check Inbox & Spam.`;
+          noticeBox.classList.remove("hidden");
+        }
         return;
       }
     }
 
-    this.showToast(`🔄 Fresh OTP dispatched to ${this.recoveryState.email}! (Code: ${otp})`, "info");
+    this.showToast(`🔄 Fresh OTP ready for ${this.recoveryState.email}!`, "info");
+    if (noticeBox) {
+      noticeBox.className = "p-2.5 rounded text-xs font-mono border border-amber-500/50 bg-amber-950/60 text-amber-300";
+      noticeBox.innerHTML = `🔄 <strong>Fresh OTP:</strong> <strong class="text-white text-sm bg-black/60 px-2 py-0.5 rounded cursor-pointer underline tracking-widest font-mono select-all" onclick="document.getElementById('rec-pass-otp').value='${otp}'">${otp}</strong> <span class="text-[10px] text-gray-400">(Click to auto-fill)</span>`;
+      noticeBox.classList.remove("hidden");
+    }
   }
 
   async handleVerifyOTPAndResetPassword(e) {

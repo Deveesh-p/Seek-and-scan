@@ -798,9 +798,12 @@
         <!-- STEP 2: VERIFY OTP & SAVE NEW PASSWORD (Initially Hidden) -->
         <form id="form-rec-step2" onsubmit="window.app.handleVerifyOTPAndResetPassword(event)" class="space-y-3 hidden">
           <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono flex items-center justify-between">
-            <span class="truncate">OTP sent to: <strong id="rec-target-email" class="text-white"></strong></span>
+            <span class="truncate">Target Email: <strong id="rec-target-email" class="text-white"></strong></span>
             <button type="button" onclick="window.app.resetRecoveryForm()" class="text-[10px] text-amber-400 hover:underline shrink-0 ml-2">Change Email</button>
           </div>
+
+          <!-- Dynamic OTP Status / Fallback Banner -->
+          <div id="rec-otp-notice-box" class="p-2.5 rounded text-xs font-mono border hidden"></div>
 
           <div>
             <div class="flex items-center justify-between mb-1">

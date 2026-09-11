@@ -749,47 +749,176 @@ class AdminPageController {
   renderEmailConfig() {
     if (!window.emailService) return;
     const config = window.emailService.getConfig();
+    const gasInput = document.getElementById("admin-email-gas-url");
     const serviceInput = document.getElementById("admin-email-service-id");
     const templateInput = document.getElementById("admin-email-template-id");
     const publicInput = document.getElementById("admin-email-public-key");
     const badge = document.getElementById("admin-email-status-badge");
+    const codeSample = document.getElementById("admin-gas-code-sample");
 
+    if (gasInput && !gasInput.value) gasInput.value = config.gasUrl || "";
     if (serviceInput && !serviceInput.value) serviceInput.value = config.serviceId || "";
     if (templateInput && !templateInput.value) templateInput.value = config.templateId || "";
     if (publicInput && !publicInput.value) publicInput.value = config.publicKey || "";
 
+    if (codeSample && !codeSample.value) {
+      codeSample.value = `// SEEK & SCAN TOURNAMENT - GOOGLE APPS SCRIPT OTP MAILER
+// Deploy as: Web app | Execute as: Me | Who has access: Anyone
+
+function doPost(e) {
+  var data = {};
+  if (e && e.postData && e.postData.contents) {
+    try { data = JSON.parse(e.postData.contents); } catch(err) { data = e.parameter || {}; }
+  } else if (e && e.parameter) {
+    data = e.parameter;
+  }
+  return handleSend(data);
+}
+
+function doGet(e) {
+  var data = (e && e.parameter) ? e.parameter : {};
+  if (data.to && data.otp) {
+    return handleSend(data);
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "online",
+    message: "Seek & Scan OTP Mailer Webhook is active!"
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleSend(data) {
+  var toEmail = (data.to || data.to_email || data.email || "").trim();
+  var otp = (data.otp || data.otp_code || "").trim();
+  var teamName = (data.team || data.team_name || "Team").trim();
+
+  if (!toEmail || !otp) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: "Missing parameters: to, otp"
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var subject = "Seek & Scan - Password Reset OTP: " + otp;
+  var body = "Hello " + teamName + ",\\n\\n" +
+             "Your 6-digit verification code to reset your Seek & Scan Tournament password is:\\n\\n" +
+             "   " + otp + "\\n\\n" +
+             "This code expires in 10 minutes.\\n\\n" +
+             "If you did not request this password reset, please ignore this email.\\n\\n" +
+             "Seek & Scan Tournament Team";
+
+  var htmlBody = '<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #334155; border-radius: 12px; background: #0f172a; color: #f8fafc;">' +
+                 '<h2 style="color: #10b981; margin-top: 0; font-family: monospace;">⚡ SEEK &amp; SCAN</h2>' +
+                 '<p style="color: #94a3b8; font-size: 14px;">Password Recovery Verification Code</p>' +
+                 '<p>Hello <strong style="color: #38bdf8;">' + teamName + '</strong>,</p>' +
+                 '<p>Use the 6-digit OTP below to verify your email and set a new password:</p>' +
+                 '<div style="background: #1e293b; border: 2px dashed #10b981; border-radius: 8px; padding: 18px; text-align: center; margin: 20px 0;">' +
+                 '<span style="font-family: monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #10b981;">' + otp + '</span>' +
+                 '</div>' +
+                 '<p style="color: #94a3b8; font-size: 12px;">This code is valid for 10 minutes. If you did not request this, you can safely ignore this email.</p>' +
+                 '</div>';
+
+  try {
+    MailApp.sendEmail({
+      to: toEmail,
+      subject: subject,
+      body: body,
+      htmlBody: htmlBody
+    });
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      message: "Email sent successfully to " + toEmail
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+    }
+
     if (badge) {
-      if (config.isConfigured) {
+      if (config.isGasConfigured) {
         badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
-        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Service: Live &amp; Ready`;
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Google Mailer: Active &amp; Ready`;
+      } else if (config.isEmailJsConfigured) {
+        badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-cyan/50 bg-cyan-950/60 text-cyan";
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-cyan animate-pulse"></span> EmailJS: Active &amp; Ready`;
       } else {
         badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-amber-500/50 bg-amber-950/40 text-amber-300";
-        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> Service: Not Configured`;
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> Email Service: Not Configured`;
       }
     }
     if (window.lucide) window.lucide.createIcons();
   }
 
-  handleSaveEmailConfig(e) {
+  handleSaveGasConfig(e) {
+    e.preventDefault();
+    const gasUrl = (document.getElementById("admin-email-gas-url")?.value || "").trim();
+
+    if (!gasUrl) {
+      this.showToast("Please enter your Google Apps Script Web App URL.", "error");
+      return;
+    }
+
+    if (window.emailService) {
+      const isOk = window.emailService.saveGasUrl(gasUrl);
+      this.renderEmailConfig();
+      if (isOk) {
+        this.showToast("🎉 Google Mailer URL saved! You can now test inbox delivery below.", "success");
+      } else {
+        this.showToast("Invalid URL format. Must start with https://script.google.com/macros/s/...", "warning");
+      }
+    }
+  }
+
+  handleClearGasConfig() {
+    if (window.emailService) {
+      window.emailService.clearGasUrl();
+      const gasInput = document.getElementById("admin-email-gas-url");
+      if (gasInput) gasInput.value = "";
+      this.renderEmailConfig();
+      this.showToast("Google Mailer URL cleared.", "info");
+    }
+  }
+
+  copyGasScriptCode() {
+    const codeSample = document.getElementById("admin-gas-code-sample");
+    if (codeSample && codeSample.value) {
+      navigator.clipboard.writeText(codeSample.value).then(() => {
+        const btn = document.getElementById("btn-copy-gas-code");
+        if (btn) btn.innerHTML = `✅ Copied to Clipboard!`;
+        setTimeout(() => {
+          if (btn) btn.innerHTML = `<i data-lucide="copy" class="w-3 h-3"></i> Copy Script Code`;
+          if (window.lucide) window.lucide.createIcons();
+        }, 2500);
+        this.showToast("📋 Google Apps Script code copied to clipboard! Paste it at script.google.com", "success");
+      }).catch(() => {
+        this.showToast("Failed to copy automatically. Please manually select and copy the code box.", "warning");
+      });
+    }
+  }
+
+  handleSaveEmailJsConfig(e) {
     e.preventDefault();
     const serviceId = (document.getElementById("admin-email-service-id")?.value || "").trim();
     const templateId = (document.getElementById("admin-email-template-id")?.value || "").trim();
     const publicKey = (document.getElementById("admin-email-public-key")?.value || "").trim();
 
     if (window.emailService) {
-      const isOk = window.emailService.saveConfig(serviceId, templateId, publicKey);
+      const isOk = window.emailService.saveEmailJsConfig(serviceId, templateId, publicKey);
       this.renderEmailConfig();
       if (isOk) {
-        this.showToast("✅ EmailJS credentials saved! OTP emails will now be delivered directly to players' inboxes.", "success");
+        this.showToast("✅ EmailJS credentials saved!", "success");
       } else {
-        this.showToast("Settings saved! Please provide all 3 fields (Service ID, Template ID, Public Key) to complete setup.", "warning");
+        this.showToast("Settings saved! Please provide all 3 fields to complete EmailJS setup.", "warning");
       }
     }
   }
 
-  handleClearEmailConfig() {
+  handleClearEmailJsConfig() {
     if (window.emailService) {
-      window.emailService.saveConfig("", "", "");
+      window.emailService.clearEmailJsConfig();
       const s = document.getElementById("admin-email-service-id");
       const t = document.getElementById("admin-email-template-id");
       const p = document.getElementById("admin-email-public-key");
@@ -799,6 +928,15 @@ class AdminPageController {
       this.renderEmailConfig();
       this.showToast("EmailJS settings cleared.", "info");
     }
+  }
+
+  // Alias for backward compatibility
+  handleSaveEmailConfig(e) {
+    this.handleSaveEmailJsConfig(e);
+  }
+
+  handleClearEmailConfig() {
+    this.handleClearEmailJsConfig();
   }
 
   async handleSendTestEmail() {
@@ -832,14 +970,14 @@ class AdminPageController {
         this.showToast(`🎉 Test OTP email delivered to ${targetEmail}! Check your inbox.`, "success");
         if (resultBox) {
           resultBox.className = "p-2.5 rounded text-xs font-mono bg-emerald-950/60 border border-emerald-500/50 text-emerald-300";
-          resultBox.innerHTML = `✅ <strong>Success!</strong> Test email dispatched to <code>${targetEmail}</code>. Please check your inbox and spam folder.`;
+          resultBox.innerHTML = `✅ <strong>Success!</strong> Test email dispatched to <code>${targetEmail}</code> via <strong>${res.method}</strong>. Please check your inbox (and spam folder).`;
           resultBox.classList.remove("hidden");
         }
       } else if (res.notConfigured) {
-        this.showToast("⚠️ EmailJS is not configured yet. Paste your Service ID, Template ID, and Public Key above.", "warning");
+        this.showToast("⚠️ Email service is not configured yet. Set up Google Mailer or EmailJS above.", "warning");
         if (resultBox) {
           resultBox.className = "p-2.5 rounded text-xs font-mono bg-amber-950/60 border border-amber-500/50 text-amber-300";
-          resultBox.innerHTML = `⚠️ <strong>Not Configured:</strong> Please save your EmailJS keys above first. Simulated test code: <strong>${res.fallbackOtp}</strong>`;
+          resultBox.innerHTML = `⚠️ <strong>Not Configured:</strong> Save your Google Mailer URL or EmailJS keys above first. Simulated test code: <strong>${res.fallbackOtp}</strong>`;
           resultBox.classList.remove("hidden");
         }
       } else {
