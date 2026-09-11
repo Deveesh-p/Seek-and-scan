@@ -1187,13 +1187,13 @@ class SeekAndScanApp {
     }[tag] || tag));
   }
 
-  // --- Account Recovery (6-Digit OTP Flow & Email Lookup) ---
-  openRecoveryModal(tab = 'password') {
+  // --- Password Recovery (6-Digit OTP Flow) ---
+  openRecoveryModal() {
     if (window.cyberAudio) window.cyberAudio.playClick();
     const modal = document.getElementById("modal-account-recovery");
     if (modal) {
       modal.classList.remove("hidden");
-      this.switchRecoveryTab(tab);
+      this.resetRecoveryForm();
       if (window.lucide) window.lucide.createIcons();
     }
   }
@@ -1223,36 +1223,6 @@ class SeekAndScanApp {
       noticeBox.classList.add("hidden");
       noticeBox.innerHTML = "";
     }
-  }
-
-  switchRecoveryTab(tab) {
-    const tabPass = document.getElementById("tab-rec-password");
-    const tabEmail = document.getElementById("tab-rec-email");
-    const passWrapper = document.getElementById("rec-pass-wrapper");
-    const formEmail = document.getElementById("form-rec-email");
-    const resultBox = document.getElementById("rec-email-result");
-    if (resultBox) resultBox.classList.add("hidden");
-
-    if (tab === 'password') {
-      if (tabPass) {
-        tabPass.className = "py-2 px-3 rounded text-center transition-all bg-emerald-500 text-black font-bold";
-      }
-      if (tabEmail) {
-        tabEmail.className = "py-2 px-3 rounded text-center transition-all text-gray-400 hover:text-white font-medium";
-      }
-      if (passWrapper) passWrapper.classList.remove("hidden");
-      if (formEmail) formEmail.classList.add("hidden");
-    } else {
-      if (tabEmail) {
-        tabEmail.className = "py-2 px-3 rounded text-center transition-all bg-emerald-500 text-black font-bold";
-      }
-      if (tabPass) {
-        tabPass.className = "py-2 px-3 rounded text-center transition-all text-gray-400 hover:text-white font-medium";
-      }
-      if (formEmail) formEmail.classList.remove("hidden");
-      if (passWrapper) passWrapper.classList.add("hidden");
-    }
-    if (window.lucide) window.lucide.createIcons();
   }
 
   async handleSendRecoveryOTP(e) {
@@ -1288,7 +1258,7 @@ class SeekAndScanApp {
       }
 
       if (!team) {
-        throw new Error(`No registered team found with email: "${email}". Please verify your email address or use Find Email.`);
+        throw new Error(`No registered team found with email: "${email}". Please verify your email spelling or register your team.`);
       }
 
       // 2. Generate cryptographically strong 6-digit OTP
@@ -1460,40 +1430,6 @@ class SeekAndScanApp {
     }
   }
 
-  handleEmailLookup(e) {
-    e.preventDefault();
-    if (window.cyberAudio) window.cyberAudio.playClick();
-
-    const teamVal = document.getElementById("rec-email-team").value;
-    const leaderVal = document.getElementById("rec-email-leader").value;
-
-    try {
-      const foundTeam = window.gameStore.lookupEmail(teamVal, leaderVal);
-      const resultBox = document.getElementById("rec-email-result");
-      const displayEl = document.getElementById("rec-email-display");
-      if (displayEl) displayEl.innerText = foundTeam.email;
-      if (resultBox) resultBox.classList.remove("hidden");
-      this.recoveredEmail = foundTeam.email;
-      if (window.cyberAudio) window.cyberAudio.playCorrect();
-      this.showToast(`Found registered email: ${foundTeam.email}`, "success");
-    } catch (err) {
-      if (window.cyberAudio) window.cyberAudio.playIncorrect();
-      this.showToast(err.message, "error");
-      const resultBox = document.getElementById("rec-email-result");
-      if (resultBox) resultBox.classList.add("hidden");
-    }
-  }
-
-  useRecoveredEmail() {
-    if (this.recoveredEmail) {
-      const loginEmailInput = document.getElementById("login-email");
-      if (loginEmailInput) loginEmailInput.value = this.recoveredEmail;
-      this.closeRecoveryModal();
-      this.showToast(`Email ${this.recoveredEmail} loaded into login form.`, "info");
-      const loginPassInput = document.getElementById("login-password");
-      if (loginPassInput) loginPassInput.focus();
-    }
-  }
 
   setupEventListeners() {
     const soundBtn = document.getElementById("btn-toggle-sound");
