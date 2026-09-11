@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEEK & SCAN | Admin Tournament Command Console</title>
+  
+  <!-- Google Fonts: Orbitron, Inter, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cyber: {
+              black: '#05080c',
+              dark: '#0a0f16',
+              green: '#00ff66',
+              cyan: '#00e5ff',
+              pink: '#ff0055',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- QRCode.js for Station Posters -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Supabase Client JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-[#05080c] text-gray-100 min-h-screen flex flex-col">
+
+  <!-- ========================================================================
+       ADMIN NAVIGATION BAR
+       ======================================================================== -->
+  <header class="sticky top-0 z-50 bg-[#0a0f16]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(0,255,102,0.4)]">
+          <i data-lucide="shield-check" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="font-cyber font-black text-lg tracking-wider text-white flex items-center gap-2">
+            SEEK &amp; SCAN <span class="badge-neon text-[10px]">ADMIN CONSOLE</span>
+          </h1>
+          <span class="text-[10px] font-mono text-emerald-400/80 tracking-widest uppercase block -mt-0.5">
+            Tournament Management &bull; Access Code Dispatcher
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <a href="index.html" target="_blank" class="btn-cyber text-xs px-3 py-1.5 border-gray-700 text-gray-300">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open Player Website
+        </a>
+        <button onclick="window.adminPage.logoutAdmin()" class="btn-cyber btn-cyber-danger text-xs px-3 py-1.5">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Exit Admin
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full px-3 pointer-events-none"></div>
+
+  <!-- ========================================================================
+       MASTER ADMIN AUTHENTICATION GATE (Shown if not authenticated)
+       ======================================================================== -->
+  <div id="admin-auth-gate" class="flex-1 flex items-center justify-center p-4">
+    <div class="cyber-card cyber-corners max-w-md w-full p-8 text-center border-emerald-500/40 space-y-5">
+      <div class="w-16 h-16 mx-auto rounded-full bg-emerald-950 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(0,255,102,0.3)]">
+        <i data-lucide="lock" class="w-8 h-8"></i>
+      </div>
+      <div>
+        <h2 class="font-cyber text-2xl font-bold text-white tracking-wider">RESTRICTED ACCESS</h2>
+        <p class="text-xs font-mono text-gray-400 mt-1">Enter Master Admin Password to unlock tournament management</p>
+      </div>
+      <form onsubmit="window.adminPage.handleAdminLogin(event)" class="space-y-4 text-left">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">ADMIN PASSWORD</label>
+          <input type="password" id="gate-password-input" required class="cyber-input font-mono" placeholder="Enter admin password..." autofocus>
+        </div>
+        <button type="submit" class="btn-cyber w-full py-2.5">
+          <i data-lucide="unlock" class="w-4 h-4"></i> Unlock Admin Console
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       ADMIN DASHBOARD CONTENT (Shown when authenticated)
+       ======================================================================== -->
+  <main id="admin-main-content" class="flex-1 max-w-7xl mx-auto w-full p-4 py-6 space-y-8 hidden">
+    
+    <!-- Top Stats Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="cyber-card p-4 border-emerald-500/30">
+        <div class="text-xs font-mono text-gray-400 uppercase">Total Teams Registered</div>
+        <div id="stat-total-teams" class="font-cyber text-2xl font-bold text-white mt-1">0</div>
+      </div>
+      <div class="cyber-card p-4 border-amber-500/30">
+        <div class="text-xs font-mono text-gray-400 uppercase">Awaiting Access Code</div>
+        <div id="stat-pending-teams" class="font-cyber text-2xl font-bold text-amber-400 mt-1">0</div>
+      </div>
+      <div class="cyber-card p-4 border-cyan/30">
+        <div class="text-xs font-mono text-gray-400 uppercase">Active / Playing</div>
+        <div id="stat-active-teams" class="font-cyber text-2xl font-bold text-cyan mt-1">0</div>
+      </div>
+      <div class="cyber-card p-4 border-red-500/30">
+        <div class="text-xs font-mono text-gray-400 uppercase">Disqualified Breaches</div>
+        <div id="stat-disqualified-teams" class="font-cyber text-2xl font-bold text-red-400 mt-1">0</div>
+      </div>
+    </div>
+
+    <!-- SECTION 1: REGISTERED TEAMS MONITOR & MANUAL ACCESS CODE DISPATCH -->
+    <section class="cyber-card overflow-hidden border-emerald-500/40">
+      <div class="p-5 border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span class="badge-neon text-[10px]">REAL-TIME TEAM DISPATCH</span>
+          <h2 class="text-xl font-cyber font-bold text-white mt-1 flex items-center gap-2">
+            <i data-lucide="users" class="w-5 h-5 text-emerald-400"></i> Registered Teams &amp; Manual Access Codes
+          </h2>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Teams cannot start until you assign &amp; give them their verified Access Code manually!
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="text" id="teams-search-input" oninput="window.adminPage.filterTeams(this.value)" placeholder="Search teams..." class="cyber-input text-xs py-1.5 px-3 max-w-[180px]">
+          <button onclick="window.adminPage.autoApproveAll()" class="btn-cyber text-xs px-3 py-1.5 border-amber-500/40 text-amber-300 hover:border-amber-400" title="Auto-approve all registered teams and ensure all have access codes">
+            <i data-lucide="check-check" class="w-3.5 h-3.5"></i> Auto-Approve All
+          </button>
+          <button onclick="window.adminPage.refreshTeams()" class="btn-cyber text-xs px-3 py-1.5" title="Sync live teams from Supabase database">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh DB
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-gray-800 bg-slate-950/70 font-cyber text-xs text-gray-400 uppercase">
+              <th class="py-3.5 px-4">Team &amp; Leader</th>
+              <th class="py-3.5 px-3">Contact</th>
+              <th class="py-3.5 px-3">Round</th>
+              <th class="py-3.5 px-3">Game Status</th>
+              <th class="py-3.5 px-4">Assigned Access Code</th>
+              <th class="py-3.5 px-4 text-center">Team Questions &amp; QR</th>
+              <th class="py-3.5 px-4 text-right">Access Controls</th>
+            </tr>
+          </thead>
+          <tbody id="admin-teams-table-body" class="divide-y divide-gray-850">
+            <!-- Populated by admin.js -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 2: ANTI-CHEAT FAIR PLAY PROCTOR LOGS -->
+    <section class="cyber-card p-5 border-red-500/40 space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 class="font-cyber text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="shield-alert" class="w-5 h-5 text-red-400"></i> Fair-Play Proctor Violation Logs
+          </h3>
+          <p class="text-xs text-gray-400 font-mono">
+            Automatically recorded when tab switch or malpractice is detected on active player device
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="admin-tab-guard-toggle-btn" onclick="window.adminPage.toggleTabSwitchGuard()"
+            class="px-3 py-1.5 rounded text-xs font-mono font-bold flex items-center gap-2 border transition-all cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span> TAB SWITCH GUARD: ACTIVE
+          </button>
+        </div>
+      </div>
+
+      <div id="admin-cheat-log-list" class="space-y-2.5">
+        <!-- Injected by admin.js -->
+      </div>
+    </section>
+
+    <!-- SECTION 3: ROUNDS, QUESTIONS & LOCATION CLUE STUDIO -->
+    <section class="space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+        <div>
+          <h3 class="font-cyber text-lg font-bold text-white flex items-center gap-2">
+            <i data-lucide="book-open" class="w-5 h-5 text-emerald-400"></i> Question &amp; Clue Studio
+          </h3>
+          <p class="text-xs text-gray-400">
+            Edit the 5 questions per round, technical clues/hints for wrong attempt 1, location clues, and unlock codes.
+          </p>
+        </div>
+
+        <!-- Round Tabs -->
+        <div class="flex items-center gap-2" id="admin-round-tabs">
+          <!-- Injected by admin.js -->
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left: 5 Questions (2 Columns) -->
+        <div class="lg:col-span-2 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="font-cyber text-xs font-bold text-gray-300 uppercase tracking-wider">
+              <span id="admin-round-title-display">Round 1</span> &bull; Questions
+            </h4>
+            <button onclick="window.adminPage.openAddModal()" class="btn-cyber text-xs px-3 py-1.5">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Question
+            </button>
+          </div>
+
+          <div id="admin-questions-list" class="space-y-3">
+            <!-- Questions injected by admin.js -->
+          </div>
+        </div>
+
+        <!-- Right: Location Clue & Station QR Poster -->
+        <div class="space-y-5">
+          
+          <!-- Clue & Unlock Code Editor -->
+          <div class="cyber-card p-5 space-y-3 border-emerald-500/30">
+            <h4 class="font-cyber text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="map-pin" class="w-4 h-4 text-emerald-400"></i> Round Metadata, Clue &amp; Passcode
+            </h4>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs font-mono text-gray-400">ROUND TITLE / NAME</label>
+                <button type="button" onclick="window.adminPage.setRoundTitleQuickSimple()" 
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 hover:bg-emerald-950 text-emerald-400 border border-emerald-500/30 transition-colors"
+                  title="Click to reset title to clean 'Round 1', 'Round 2', or 'Round 3'">
+                  ⚡ Set Clean Name
+                </button>
+              </div>
+              <input type="text" id="admin-round-title-input" class="cyber-input text-xs font-mono font-bold text-white" placeholder="e.g. Round 1 or your custom title">
+              <span class="text-[10px] text-gray-500 font-mono">Set to just "Round 1" or type your own custom tournament name.</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-mono text-gray-400 mb-1">PHYSICAL STATION NAME</label>
+              <input type="text" id="admin-location-name-input" class="cyber-input text-xs font-mono">
+            </div>
+
+            <div>
+              <label class="block text-xs font-mono text-gray-400 mb-1">STATION UNLOCK PASSCODE</label>
+              <input type="text" id="admin-unlock-code-input" class="cyber-input text-xs font-mono font-bold uppercase tracking-wider">
+              <span class="text-[10px] text-gray-500 font-mono">Entered by team to advance to next round.</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-mono text-gray-400 mb-1">CLUE TO NEXT QR LOCATION</label>
+              <textarea id="admin-clue-input" rows="4" class="cyber-input text-xs font-mono"></textarea>
+              <span class="text-[10px] text-gray-500 font-mono">Revealed only after solving all 5 questions.</span>
+            </div>
+
+            <button onclick="window.adminPage.saveRoundConfig()" class="btn-cyber w-full py-2 text-xs">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Title, Clue &amp; Passcode
+            </button>
+          </div>
+
+          <!-- Printable Station QR Poster -->
+          <div class="cyber-card p-5 text-center space-y-3">
+            <h4 class="font-cyber text-xs font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2">
+              <i data-lucide="printer" class="w-4 h-4 text-emerald-400"></i> Station QR Poster Sheet
+            </h4>
+            <div id="admin-qr-preview" class="p-3 bg-white rounded-xl inline-block shadow-lg mx-auto"></div>
+            <div>
+              <div id="admin-qr-label" class="font-cyber text-xs font-bold text-emerald-400">Station #1</div>
+              <div id="admin-qr-key-text" class="text-[11px] font-mono text-gray-400 truncate max-w-[220px] mx-auto"></div>
+            </div>
+            <button onclick="window.adminPage.printStationPoster()" class="btn-cyber btn-cyber-cyan w-full py-2 text-xs">
+              <i data-lucide="printer" class="w-4 h-4"></i> Print Official Station Poster
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: SUPABASE DATABASE CLOUD SYNC -->
+    <section class="cyber-card p-5 border-cyan/30 space-y-3">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h4 class="font-cyber text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="database" class="w-4 h-4 text-cyan"></i> Supabase Database Integration
+          </h4>
+          <p class="text-xs text-gray-400 font-mono mt-0.5">
+            Connected Project: <span class="text-cyan font-bold">https://rwstjqfqouaviiepkzjz.supabase.co</span>
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="window.adminPage.copyAdminSQL()" class="btn-cyber text-xs px-3 py-1.5 border-emerald-500/50 text-emerald-300">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy admin_supabase.sql
+          </button>
+          <button onclick="window.adminPage.copySupabaseSQL()" class="btn-cyber text-xs px-3 py-1.5 border-gray-700 text-gray-300">
+            <i data-lucide="file-code" class="w-3.5 h-3.5"></i> Full Schema SQL
+          </button>
+          <a href="https://supabase.com/dashboard/project/rwstjqfqouaviiepkzjz" target="_blank" rel="noopener" class="btn-cyber btn-cyber-cyan text-xs px-3 py-1.5">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open Supabase Console
+          </a>
+        </div>
+      </div>
+      <p class="text-[11px] text-gray-400 font-mono">
+        💡 <strong>Admin SQL Setup:</strong> Click <strong>Copy admin_supabase.sql</strong>, paste it into your Supabase SQL Editor, and click <strong>RUN</strong>. This sets up the admin tables, the manual access code system, and security policies.
+      </p>
+    </section>
+  </main>
+
+  <!-- MODAL: QUESTION EDIT / ADD -->
+  <div id="question-edit-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+    <div class="cyber-card cyber-corners max-w-xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+        <h3 id="modal-q-title" class="font-cyber text-base font-bold text-white">Edit Question</h3>
+        <button onclick="window.adminPage.closeEditModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-mono text-gray-400 mb-1">QUESTION PROMPT *</label>
+          <textarea id="edit-q-text" rows="3" class="cyber-input" placeholder="Type question prompt..."></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION A *</label>
+            <input type="text" id="edit-opt-0" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION B *</label>
+            <input type="text" id="edit-opt-1" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION C</label>
+            <input type="text" id="edit-opt-2" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION D</label>
+            <input type="text" id="edit-opt-3" class="cyber-input">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">CORRECT ANSWER *</label>
+            <select id="edit-correct-select" class="cyber-input">
+              <option value="0">Option A</option>
+              <option value="1">Option B</option>
+              <option value="2">Option C</option>
+              <option value="3">Option D</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">POINTS</label>
+            <input type="number" id="edit-points" value="20" class="cyber-input">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-mono text-gray-400 mb-1">QUESTION CLUE / HINT (UNLOCKED ON WRONG ATTEMPT 1)</label>
+          <textarea id="edit-q-hint" rows="2" class="cyber-input text-amber-300 font-mono text-xs" placeholder="Type a helpful technical hint/clue related to this question..."></textarea>
+          <span class="text-[10px] text-gray-500 font-mono">Displayed to players if their 1st attempt is incorrect.</span>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-gray-800">
+        <button onclick="window.adminPage.closeEditModal()" class="btn-cyber border-gray-700 text-gray-400 text-xs px-4 py-2">
+          Cancel
+        </button>
+        <button onclick="window.adminPage.saveQuestionFromModal()" class="btn-cyber text-xs px-5 py-2">
+          <i data-lucide="check" class="w-4 h-4"></i> Save Question
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: TEAM-SPECIFIC CUSTOM QUESTIONS & UNIQUE QR STUDIO
+       ======================================================================== -->
+  <div id="modal-team-custom-studio" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 hidden">
+    <div class="cyber-card cyber-corners max-w-5xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 space-y-4 overflow-hidden border-cyan/40">
+      
+      <!-- Studio Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+        <div class="flex items-center gap-3">
+          <div id="team-studio-avatar" class="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan/50 flex items-center justify-center text-xl">
+            🐺
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="team-studio-name" class="font-cyber text-lg font-bold text-white">Team Studio</h3>
+              <span id="team-studio-badge" class="badge-neon text-[10px]">TEAM EXCLUSIVE</span>
+            </div>
+            <div class="text-xs font-mono text-gray-400">
+              Leader: <span id="team-studio-leader" class="text-gray-200"></span> &bull; 
+              Members: <span id="team-studio-members" class="text-emerald-400"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-mono text-gray-400 hidden sm:inline">ID: <code id="team-studio-id" class="text-cyan"></code></span>
+          <button onclick="window.adminPage.removeActiveStudioTeam()" class="btn-cyber text-xs px-2.5 py-1.5 border-red-500/50 text-red-300 hover:bg-red-950 flex items-center gap-1" title="Permanently delete this team from the tournament">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Remove Team
+          </button>
+          <button onclick="window.adminPage.closeTeamCustomStudio()" class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-white transition-colors">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Studio Round Tabs -->
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2" id="team-studio-round-tabs">
+          <!-- Round 1, 2, 3 buttons injected by admin.js -->
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="window.adminPage.openAddTeamQuestionModal()" class="btn-cyber text-xs px-3 py-1.5 border-emerald-500/50 text-emerald-300">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Custom Question
+          </button>
+          <button onclick="window.adminPage.resetTeamToMasterQuestions()" class="btn-cyber text-xs px-3 py-1.5 border-red-500/40 text-red-300 hover:bg-red-950/50" title="Revert this team's questions for this round to tournament defaults">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Revert to Master Qs
+          </button>
+        </div>
+      </div>
+
+      <!-- Studio Main Content (2 Columns: Left Qs, Right QR Poster) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 flex-1 overflow-y-auto pr-1">
+        
+        <!-- Left: Questions List (2 Columns) -->
+        <div class="lg:col-span-2 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="font-cyber text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+              <span id="team-studio-round-title">Round 1</span> &bull; Custom Questions for this Team
+            </h4>
+            <span id="team-studio-custom-status" class="text-[11px] font-mono text-emerald-400 font-semibold"></span>
+          </div>
+
+          <div id="team-studio-questions-list" class="space-y-3">
+            <!-- Questions injected by admin.js -->
+          </div>
+        </div>
+
+        <!-- Right: Unique Team QR & Station Poster Sheet -->
+        <div class="space-y-4">
+          
+          <!-- Unique Team Station QR Box -->
+          <div class="cyber-card p-4 text-center space-y-3 border-cyan/40 bg-slate-950/60">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+              <span class="font-cyber text-xs font-bold text-cyan flex items-center gap-1.5">
+                <i data-lucide="qr-code" class="w-4 h-4"></i> Unique Team QR
+              </span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan border border-cyan/40">
+                SCANNABLE ONLY BY THIS TEAM
+              </span>
+            </div>
+
+            <div id="team-studio-qr-preview" class="p-3 bg-white rounded-xl inline-block shadow-lg mx-auto"></div>
+            
+            <div class="text-left space-y-1 bg-slate-900/60 p-2.5 rounded-lg border border-gray-800 text-[11px] font-mono">
+              <div class="text-gray-400">QR Encoded Key:</div>
+              <div id="team-studio-qr-key-text" class="text-cyan font-bold break-all select-all"></div>
+              <div class="text-gray-400 pt-1">Station Unlock Passcode:</div>
+              <div id="team-studio-passcode-text" class="text-emerald-400 font-bold tracking-wider"></div>
+            </div>
+
+            <button onclick="window.adminPage.printTeamStationPoster()" class="btn-cyber btn-cyber-cyan w-full py-2.5 text-xs font-cyber flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(0,240,255,0.3)]">
+              <i data-lucide="printer" class="w-4 h-4"></i> Print Team Station Poster
+            </button>
+          </div>
+
+          <!-- Custom Location Clue for this Team -->
+          <div class="cyber-card p-4 space-y-3 border-emerald-500/30">
+            <h5 class="font-cyber text-xs font-bold text-white uppercase flex items-center gap-2">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-emerald-400"></i> Station Clue &amp; Passcode
+            </h5>
+
+            <div>
+              <label class="block text-[11px] font-mono text-gray-400 mb-1">STATION PASSCODE</label>
+              <input type="text" id="team-studio-unlock-input" class="cyber-input text-xs font-mono font-bold uppercase tracking-wider">
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-mono text-gray-400 mb-1">CLUE TO NEXT STATION</label>
+              <textarea id="team-studio-clue-input" rows="3" class="cyber-input text-xs font-mono"></textarea>
+            </div>
+
+            <button onclick="window.adminPage.saveTeamStationClue()" class="btn-cyber w-full py-1.5 text-xs">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Station Clue
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: TEAM QUESTION EDIT / ADD -->
+  <div id="modal-team-q-edit" class="fixed inset-0 bg-black/85 backdrop-blur-md z-[60] flex items-center justify-center p-4 hidden">
+    <div class="cyber-card cyber-corners max-w-xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto border-cyan/40">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+        <h3 id="team-modal-q-title" class="font-cyber text-base font-bold text-white">Edit Team Question</h3>
+        <button onclick="window.adminPage.closeTeamQuestionEditModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-mono text-gray-400 mb-1">QUESTION PROMPT *</label>
+          <textarea id="team-edit-q-text" rows="3" class="cyber-input" placeholder="Type customized question for this team..."></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION A *</label>
+            <input type="text" id="team-edit-opt-0" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION B *</label>
+            <input type="text" id="team-edit-opt-1" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION C</label>
+            <input type="text" id="team-edit-opt-2" class="cyber-input">
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">OPTION D</label>
+            <input type="text" id="team-edit-opt-3" class="cyber-input">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">CORRECT ANSWER *</label>
+            <select id="team-edit-correct-select" class="cyber-input">
+              <option value="0">Option A</option>
+              <option value="1">Option B</option>
+              <option value="2">Option C</option>
+              <option value="3">Option D</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-mono text-gray-400 mb-1">POINTS</label>
+            <input type="number" id="team-edit-points" value="20" class="cyber-input">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-mono text-gray-400 mb-1">QUESTION CLUE / HINT (UNLOCKED ON WRONG ATTEMPT 1 FOR THIS TEAM)</label>
+          <textarea id="team-edit-q-hint" rows="2" class="cyber-input text-amber-300 font-mono text-xs" placeholder="Type customized hint related to this question..."></textarea>
+          <span class="text-[10px] text-gray-500 font-mono">Displayed to this team if their 1st attempt is incorrect.</span>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-gray-800">
+        <button onclick="window.adminPage.closeTeamQuestionEditModal()" class="btn-cyber border-gray-700 text-gray-400 text-xs px-4 py-2">
+          Cancel
+        </button>
+        <button onclick="window.adminPage.saveTeamQuestionFromModal()" class="btn-cyber btn-cyber-cyan text-xs px-5 py-2">
+          <i data-lucide="check" class="w-4 h-4"></i> Save Question for Team
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/audio.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

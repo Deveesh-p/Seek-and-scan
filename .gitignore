@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+
+# Screenshots & Personal Captures
+Screenshots/
+
+# OS & Environment
+.DS_Store
+Thumbs.db
+*.log

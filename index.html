@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SEEK & SCAN | Cyber Tournament Platform</title>
+  
+  <!-- Google Fonts: Orbitron (Cyberpunk), Inter, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cyber: {
+              black: '#05080c',
+              dark: '#0a0f16',
+              green: '#00ff66',
+              cyan: '#00e5ff',
+              pink: '#ff0055',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- HTML5-QRCode Scanner Library -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <!-- QRCode.js Generator for Admin Station Posters -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Canvas Confetti for Clue Celebrations -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+  <!-- Supabase Client JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-[#05080c] text-gray-100 flex flex-col min-h-screen">
+
+  <!-- ========================================================================
+       TOP NAVIGATION BAR
+       ======================================================================== -->
+  <header class="sticky top-0 z-50 bg-[#0a0f16]/90 backdrop-blur-md border-b border-emerald-500/20 px-4 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      
+      <!-- Brand / Logo (5 quick clicks triggers Master Admin Prompt) -->
+      <div class="flex items-center gap-3 cursor-pointer select-none" onclick="window.app.handleBrandClick()">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-[0_0_12px_rgba(0,255,102,0.3)]">
+          <i data-lucide="qr-code" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="font-cyber font-black text-lg tracking-wider text-white flex items-center gap-1.5">
+            SEEK <span class="text-neon">&amp;</span> SCAN
+          </h1>
+          <span class="text-[10px] font-mono text-emerald-400/70 tracking-widest uppercase block -mt-1">
+            Cyber Challenge v2.0
+          </span>
+        </div>
+      </div>
+
+      <!-- Navigation Links -->
+      <nav class="hidden md:flex items-center gap-5 text-xs font-cyber font-semibold tracking-wider">
+        <button id="nav-mission-link" onclick="window.app.switchView('mission')" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5">
+          <i data-lucide="crosshair" class="w-3.5 h-3.5 text-emerald-400"></i> Mission Hub
+        </button>
+        <button onclick="window.app.switchView('leaderboard')" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5">
+          <i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-400"></i> Leaderboard
+        </button>
+      </nav>
+
+      <!-- Right Action Controls -->
+      <div class="flex items-center gap-3">
+        
+        <!-- Live Proctor Armed Indicator -->
+        <div id="proctor-status-indicator" class="hidden bg-emerald-950/40 border border-emerald-500/40 px-2.5 py-1 rounded-full items-center">
+          <!-- Populated by anti-cheat.js -->
+        </div>
+
+        <!-- Sound Toggle -->
+        <button id="btn-toggle-sound" class="p-2 rounded-lg bg-slate-900/80 border border-gray-800 hover:border-emerald-500/40 transition-colors" title="Toggle Cyber Audio FX">
+          <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
+        </button>
+
+        <!-- Current Team Badge -->
+        <div id="header-team-badge" onclick="window.app.showAccessCodeSuccessModal(window.gameStore.currentTeam)" class="hidden flex items-center gap-2.5 bg-emerald-950/40 border border-emerald-500/40 px-3 py-1 rounded-lg cursor-pointer hover:border-emerald-400 transition-colors" title="Click to view your Access Code & Credentials">
+          <div class="text-right">
+            <div id="header-team-name" class="text-xs font-bold text-white leading-tight">Team</div>
+            <div id="header-team-score" class="text-[10px] font-mono text-emerald-400">0 pts</div>
+          </div>
+          <div id="header-team-code" class="text-[10px] font-mono font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/40">
+            CODE: SEEK-XXXX
+          </div>
+        </div>
+
+        <!-- Logout Button -->
+        <button id="header-logout-btn" onclick="window.app.logout()" class="hidden p-2 rounded-lg bg-slate-900/80 border border-gray-800 hover:border-red-500/40 text-gray-400 hover:text-red-400 transition-colors" title="Sign Out">
+          <i data-lucide="log-out" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Secondary Tab Bar -->
+  <div class="md:hidden bg-[#0a0f16]/95 border-b border-gray-850 px-3 py-2 flex items-center justify-around text-xs font-cyber">
+    <button onclick="window.app.switchView('mission')" class="hover:text-emerald-400 flex items-center gap-1">
+      <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Mission
+    </button>
+    <button onclick="window.app.switchView('challenge')" class="hover:text-emerald-400 text-emerald-400 flex items-center gap-1 font-bold">
+      <i data-lucide="scan" class="w-3.5 h-3.5"></i> Play
+    </button>
+    <button onclick="window.app.switchView('leaderboard')" class="hover:text-emerald-400 flex items-center gap-1">
+      <i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-400"></i> Ranks
+    </button>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full px-3 pointer-events-none"></div>
+
+  <!-- ========================================================================
+       VIEW 1: AUTHENTICATION (LOGIN & REGISTRATION)
+       ======================================================================== -->
+  <section id="view-auth" class="flex-1 flex items-center justify-center p-4 py-8">
+    <div class="cyber-card cyber-corners max-w-md w-full p-6 sm:p-8 relative">
+      
+      <div class="text-center mb-6">
+        <div class="inline-flex p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 mb-3 shadow-[0_0_15px_rgba(0,255,102,0.25)]">
+          <i data-lucide="terminal" class="w-8 h-8"></i>
+        </div>
+        <h2 class="font-cyber text-2xl font-black text-white tracking-wider">
+          SEEK <span class="text-neon">&amp;</span> SCAN
+        </h2>
+        <p class="text-xs text-gray-400 mt-1 font-mono">
+          Authenticate your team credentials to access tournament grid
+        </p>
+      </div>
+
+      <!-- Auth Mode Switch Tabs -->
+      <div class="flex border-b border-gray-800 mb-6 font-cyber text-xs">
+        <button id="tab-auth-login" onclick="window.app.toggleAuthMode('login')"
+          class="flex-1 py-2.5 text-center text-emerald-400 border-b-2 border-emerald-400 font-bold transition-all">
+          Team Sign In
+        </button>
+        <button id="tab-auth-register" onclick="window.app.toggleAuthMode('register')"
+          class="flex-1 py-2.5 text-center text-gray-400 hover:text-white transition-all">
+          Register New Team
+        </button>
+      </div>
+
+      <!-- 1. LOGIN FORM -->
+      <form id="form-login" onsubmit="window.app.handleLogin(event)" class="space-y-4">
+        <!-- Prior Registration Success Notice (Shown immediately after registering) -->
+        <div id="login-reg-success" class="hidden p-3 rounded-lg bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 font-mono text-xs text-center space-y-1 animate-pulse">
+          <div class="font-bold text-emerald-300 flex items-center justify-center gap-1.5">
+            <i data-lucide="check-circle" class="w-4 h-4"></i> You have registered successfully!
+          </div>
+          <div class="text-[11px] text-gray-300">
+            On event day, visit the Control Desk to collect your Access Code and unlock the mission grid.
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM EMAIL OR ID</label>
+          <input type="text" id="login-email" required class="cyber-input font-mono" placeholder="team@domain.com">
+        </div>
+
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="text-xs font-mono text-gray-400">PASSWORD</label>
+            <button type="button" onclick="window.app.openRecoveryModal('password')" class="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 hover:underline">
+              Forgot Password?
+            </button>
+          </div>
+          <input type="password" id="login-password" required class="cyber-input font-mono" placeholder="••••••••">
+        </div>
+
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="text-xs font-mono text-gray-400">EVENT ACCESS CODE</label>
+            <span class="text-[10px] font-mono text-amber-400 font-semibold">Issued on event day</span>
+          </div>
+          <input type="text" id="login-access-code" class="cyber-input font-mono uppercase tracking-widest text-center text-sm" placeholder="e.g. SEEK-XXXX" autocomplete="off">
+          <p class="text-[10px] text-gray-500 font-mono mt-1">
+            🛡️ Leave empty if registering in advance. On event day, enter code issued by Event Desk.
+          </p>
+        </div>
+
+        <button type="submit" class="btn-cyber w-full py-3 mt-2 shadow-[0_0_15px_rgba(0,255,102,0.3)]">
+          <i data-lucide="log-in" class="w-4 h-4"></i> Enter Mission Grid
+        </button>
+
+        <div class="text-center pt-2">
+          <button type="button" onclick="window.app.openRecoveryModal('email')" class="text-[11px] font-mono text-gray-400 hover:text-emerald-400 transition-colors">
+            Forgot registered email? <span class="text-emerald-400 underline font-semibold">Find Email</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- 2. REGISTRATION FORM -->
+      <form id="form-register" onsubmit="window.app.handleRegister(event)" class="space-y-3.5 hidden">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM NAME *</label>
+          <input type="text" id="reg-team-name" required class="cyber-input" placeholder="e.g. Cyber Ninjas">
+        </div>
+
+        <!-- Team Roster Section (Max 3 Members Strict) -->
+        <div class="space-y-2 border border-emerald-500/30 p-3 rounded-lg bg-slate-900/40">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+              <i data-lucide="users" class="w-3.5 h-3.5"></i> TEAM ROSTER
+            </span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">
+              MAX 3 MEMBERS PER TEAM
+            </span>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-mono text-gray-400 mb-1">MEMBER 1: TEAM LEADER (REQUIRED) *</label>
+            <input type="text" id="reg-leader-name" required class="cyber-input text-xs" placeholder="Full Name of Team Leader">
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <div>
+              <label class="block text-[11px] font-mono text-gray-400 mb-1">MEMBER 2 (OPTIONAL)</label>
+              <input type="text" id="reg-member-2" class="cyber-input text-xs" placeholder="Second Member Full Name">
+            </div>
+            <div>
+              <label class="block text-[11px] font-mono text-gray-400 mb-1">MEMBER 3 (OPTIONAL)</label>
+              <input type="text" id="reg-member-3" class="cyber-input text-xs" placeholder="Third Member Full Name">
+            </div>
+          </div>
+          <p class="text-[10px] text-gray-500 font-mono italic">
+            🛡️ Strict tournament policy: Each team consists of a Leader and at most 2 additional members (max 3 total).
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM EMAIL *</label>
+          <input type="email" id="reg-email" required class="cyber-input" placeholder="team@domain.com">
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">ACCESS PASSWORD *</label>
+          <input type="password" id="reg-password" required class="cyber-input" placeholder="Create secret password">
+        </div>
+
+        <button type="submit" class="btn-cyber w-full py-3 mt-2 shadow-[0_0_15px_rgba(0,255,102,0.3)]">
+          <i data-lucide="user-plus" class="w-4 h-4"></i> Complete Registration &amp; Play
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VIEW 2: MISSION HUB & BRIEFING (FAITHFUL TO USER IMAGE)
+       ======================================================================== -->
+  <section id="view-mission" class="flex-1 max-w-5xl mx-auto w-full p-4 py-8 hidden space-y-8">
+    
+    <!-- Header Welcome & Team Meta -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+      <div>
+        <span class="text-xs font-mono text-emerald-400 uppercase tracking-widest">Active Team Dispatch</span>
+        <h2 id="mission-team-display" class="text-2xl sm:text-3xl font-cyber font-bold text-white">
+          Team Neon Phantoms
+        </h2>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="bg-slate-900/90 border border-gray-800 px-4 py-2 rounded-xl text-center">
+          <div class="text-[10px] font-mono text-gray-400 uppercase">Live Mission Timer</div>
+          <div id="game-live-timer" class="font-mono text-lg font-bold text-emerald-400">00:00</div>
+        </div>
+        <button onclick="window.app.switchView('challenge')" class="btn-cyber py-2.5 px-6 shadow-[0_0_20px_rgba(0,255,102,0.4)]">
+          <i data-lucide="play" class="w-4 h-4"></i> Launch Station
+        </button>
+        <button onclick="window.app.logout()" class="btn-cyber text-xs py-2 px-3.5 border-red-500/30 text-red-400 hover:bg-red-950/60 hover:border-red-500 flex items-center gap-1.5 transition-all" title="Sign out of current team session">
+          <i data-lucide="log-out" class="w-4 h-4"></i> Sign Out
+        </button>
+      </div>
+    </div>
+
+    <!-- Official Seek & Scan Mission Briefing Card (Recreation of User's Image) -->
+    <div class="mission-briefing-card p-6 sm:p-10 relative overflow-hidden">
+      <!-- Glow ambient background -->
+      <div class="absolute -right-20 -top-20 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <div class="text-center mb-8">
+        <h3 class="mission-title-glow">
+          SEEK &amp; SCAN
+        </h3>
+        <p class="text-xs font-mono text-gray-400 mt-1 uppercase tracking-wider">
+          Official Tournament Operation Directives
+        </p>
+      </div>
+
+      <!-- The 6 Rules directly matching the provided image -->
+      <ul class="space-y-4 max-w-2xl mx-auto text-base sm:text-lg text-gray-200">
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>Teams scan unique QR codes.</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>Each station has 5 challenges (Max 2 attempts: 1st wrong gives a hint, 2nd wrong gives 0 pts).</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>Solving them gives a clue to the next QR where placed.</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>Teams enter a code to unlock the next round.</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>The challenge has 3 rounds.</span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66] mt-2 flex-shrink-0"></span>
+          <span>Fastest team on the leaderboard wins.</span>
+        </li>
+      </ul>
+
+      <!-- FAIR PLAY & DISQUALIFICATION NOTICE -->
+      <div class="mt-8 pt-6 border-t border-red-500/20 max-w-2xl mx-auto">
+        <div class="p-3.5 rounded-xl bg-red-950/20 border border-red-500/30 flex items-center gap-3">
+          <i data-lucide="shield-alert" class="w-6 h-6 text-red-400 flex-shrink-0"></i>
+          <p class="text-xs text-red-300 font-mono">
+            <strong>FAIR PLAY PROTOCOL:</strong> Opening another tab, minimizing the screen, or using "Circle to Search" triggers instant automatic disqualification. Keep this window active during challenge solving.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATION SOLVED / UNLOCK NEXT ROUND CARD (Inside Mission Hub) -->
+    <div id="mission-station-solved-card" class="cyber-card p-6 sm:p-8 border-2 border-emerald-400 shadow-[0_0_35px_rgba(0,255,102,0.35)] hidden space-y-5 animate-fade-in">
+      <div class="text-center">
+        <div class="inline-flex p-3 rounded-full bg-emerald-500/20 text-emerald-400 mb-2 border border-emerald-400/50 animate-bounce">
+          <i data-lucide="key" class="w-7 h-7"></i>
+        </div>
+        <h3 id="mission-clue-title" class="font-cyber text-2xl sm:text-3xl font-black text-emerald-400 tracking-wider">
+          STATION SOLVED! CLUE &amp; PASSCODE UNLOCKED
+        </h3>
+        <p id="mission-clue-subtitle" class="text-xs text-gray-300 font-mono mt-1">
+          Read the secret clue to find the next station and enter the passcode to unlock the next round.
+        </p>
+      </div>
+
+      <!-- Secret Location Clue -->
+      <div class="p-4 rounded-xl bg-black/80 border border-emerald-500/60 text-emerald-300 font-mono text-sm leading-relaxed text-center shadow-inner">
+        <span id="mission-clue-revealed-text"></span>
+      </div>
+
+      <!-- Prominent Passcode Box -->
+      <div class="p-4 rounded-xl bg-emerald-950/40 border-2 border-dashed border-emerald-400 text-center space-y-1">
+        <div id="mission-passcode-label" class="text-xs font-mono font-bold text-emerald-300 uppercase tracking-widest">
+          🔑 Passcode to Unlock Next Round:
+        </div>
+        <div id="mission-revealed-passcode" class="text-2xl sm:text-3xl font-mono font-black text-white tracking-widest select-all py-1">
+          CIPHER-4720
+        </div>
+        <p class="text-[11px] text-gray-400 font-mono">
+          Enter this secret passcode below to advance to the next round.
+        </p>
+      </div>
+
+      <!-- Passcode Form -->
+      <form onsubmit="window.app.handleUnlockNextRound(event, 'mission')" class="max-w-md mx-auto space-y-3 pt-1">
+        <div class="flex gap-2">
+          <input type="text" id="mission-round-passcode-input" required placeholder="e.g. CIPHER-4720"
+            autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+            class="cyber-input text-center font-mono font-bold tracking-widest uppercase text-base">
+          <button type="submit" id="mission-round-unlock-submit-btn" class="btn-cyber px-6 font-bold flex-shrink-0 flex items-center justify-center gap-1.5">
+            <span>Unlock Next Round</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 3 Rounds Stepper & Station Status -->
+    <div class="cyber-card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h4 class="font-cyber text-sm font-bold text-white flex items-center gap-2">
+          <i data-lucide="milestone" class="w-4 h-4 text-emerald-400"></i> Tournament Milestones
+        </h4>
+        <span id="mission-round-indicator" class="text-xs font-mono text-emerald-400 font-semibold">
+          Round 1 of 3
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Round 1 -->
+        <div id="round-step-1" class="p-4 rounded-xl border border-gray-800 bg-slate-900/50">
+          <div class="font-cyber font-bold text-xs text-emerald-400 mb-1">Round 1</div>
+          <div class="text-sm font-semibold text-white">Round 1</div>
+          <div class="text-xs text-gray-400 mt-1">Scan Station #1 &bull; 5 Questions</div>
+        </div>
+        <!-- Round 2 -->
+        <div id="round-step-2" class="p-4 rounded-xl border border-gray-800 bg-slate-900/50">
+          <div class="font-cyber font-bold text-xs text-gray-500 mb-1">Round 2</div>
+          <div class="text-sm font-semibold text-gray-400">Round 2</div>
+          <div class="text-xs text-gray-500 mt-1">Scan Station #2 &bull; 5 Questions</div>
+        </div>
+        <!-- Round 3 -->
+        <div id="round-step-3" class="p-4 rounded-xl border border-gray-800 bg-slate-900/50">
+          <div class="font-cyber font-bold text-xs text-gray-500 mb-1">Round 3</div>
+          <div class="text-sm font-semibold text-gray-400">Round 3</div>
+          <div class="text-xs text-gray-500 mt-1">Scan Station #3 &bull; Final Showdown</div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <button onclick="window.app.logout()" class="btn-cyber text-xs py-3 px-6 border-red-500/30 text-red-400 hover:bg-red-950/60 hover:border-red-500 flex items-center gap-2 transition-all" title="Sign out of current team session">
+          <i data-lucide="log-out" class="w-4 h-4"></i> Sign Out Team
+        </button>
+        <button onclick="window.app.switchView('challenge')" class="btn-cyber py-3 px-8 text-sm">
+          <i data-lucide="scan-line" class="w-5 h-5"></i> Enter Station Scanner &amp; Play
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VIEW 3: STATION CHALLENGE (QR SCANNER & 5 QUESTIONS SOLVER)
+       ======================================================================== -->
+  <section id="view-challenge" class="flex-1 max-w-4xl mx-auto w-full p-4 py-6 hidden space-y-6">
+    
+    <!-- Top Station Header -->
+    <div class="cyber-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-emerald-500/30">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="badge-neon font-mono">ACTIVE TOURNAMENT STATION</span>
+          <span class="text-xs font-mono text-gray-400">Station Spot: <strong id="challenge-station-name" class="text-white">Main Courtyard</strong></span>
+        </div>
+        <h2 id="challenge-round-title" class="font-cyber text-xl sm:text-2xl font-bold text-white mt-1">
+          Round 1
+        </h2>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-4 py-2 border-emerald-500/40 text-emerald-300 bg-slate-900 hover:bg-slate-800 flex items-center gap-2 font-bold shadow-sm">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Mission Hub
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Anti-Cheat Fair Play Warning Bar -->
+    <div class="p-3 rounded-lg bg-red-950/30 border border-red-500/30 flex items-center justify-between gap-3 text-xs font-mono">
+      <div class="flex items-center gap-2 text-red-300">
+        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+        <span>PROCTOR MONITOR ACTIVE: Tab switches and Circle-to-Search result in instant disqualification!</span>
+      </div>
+    </div>
+
+    <!-- PHASE 1: STATION QR SCANNER PANEL (Shown if Station QR not yet scanned) -->
+    <div id="station-scanner-panel" class="cyber-card p-6 text-center space-y-4">
+      <div>
+        <span id="scanner-expected-station" class="text-xs font-cyber text-emerald-400 uppercase tracking-wider font-bold">
+          Station #1
+        </span>
+        <h3 class="font-cyber text-lg sm:text-xl font-bold text-white mt-1">
+          Scan Physical Station QR Code
+        </h3>
+        <p class="text-xs text-gray-400 max-w-md mx-auto mt-1">
+          Point your device camera at the printed QR code placed at this station to unlock the 5 challenges.
+        </p>
+      </div>
+
+      <!-- Camera Viewfinder with Laser Reticle -->
+      <div class="max-w-sm mx-auto scanner-viewport-container relative">
+        <div class="laser-sweep"></div>
+        <div id="qr-reader" class="w-full"></div>
+      </div>
+
+      <div id="camera-status-msg" class="text-xs font-mono text-emerald-400">
+        Initializing camera...
+      </div>
+
+      <!-- Scanner Controls -->
+      <div class="flex flex-wrap items-center justify-center gap-3 pt-2">
+        <button onclick="window.qrScannerEngine.toggleCamera()" class="btn-cyber text-xs px-3.5 py-2">
+          <i data-lucide="flip-horizontal" class="w-4 h-4"></i> Switch Camera
+        </button>
+        
+        <label class="btn-cyber btn-cyber-cyan text-xs px-3.5 py-2 cursor-pointer">
+          <i data-lucide="image" class="w-4 h-4"></i> Upload QR Picture
+          <input type="file" accept="image/*" class="sr-only" onchange="window.qrScannerEngine.scanFile(this.files[0])">
+        </label>
+      </div>
+    </div>
+
+    <!-- PHASE 2: 5 QUESTIONS SOLVER PANEL (Shown after QR is scanned) -->
+    <div id="station-questions-panel" class="space-y-4 hidden">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+        <div>
+          <h3 class="font-cyber text-lg font-bold text-white flex items-center gap-2">
+            <i data-lucide="list-checks" class="w-5 h-5 text-emerald-400"></i> Station Questions (5 of 5)
+          </h3>
+          <p class="text-xs text-gray-400">
+            Max 2 attempts per challenge (1st wrong unlocks clue/hint, 2nd wrong gives 0 pts). Complete all 5 to decode next location!
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="window.app.returnToScanner()" class="btn-cyber text-xs px-3.5 py-1.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-950 flex items-center gap-1.5">
+            <i data-lucide="scan-line" class="w-3.5 h-3.5"></i> Re-open QR Scanner
+          </button>
+          <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-3.5 py-1.5 border-gray-700 text-gray-300 hover:text-white flex items-center gap-1.5 font-bold">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Mission Hub
+          </button>
+        </div>
+      </div>
+
+      <!-- Dynamic Questions List (Rendered by app.js) -->
+      <div id="questions-container" class="space-y-4"></div>
+
+      <!-- PHASE 3: SECRET CLUE REVEAL & ROUND ADVANCE CARD (Appears directly above nav controls when 5 are solved) -->
+      <div id="station-clue-reveal-card" class="cyber-card p-6 sm:p-8 border-2 border-emerald-400 shadow-[0_0_35px_rgba(0,255,102,0.35)] hidden space-y-6 my-4">
+        
+        <div class="text-center">
+          <div class="inline-flex p-3 rounded-full bg-emerald-500/20 text-emerald-400 mb-2 border border-emerald-400/50 animate-bounce">
+            <i data-lucide="key" class="w-8 h-8"></i>
+          </div>
+          <h3 id="station-clue-card-title" class="font-cyber text-2xl sm:text-3xl font-black text-emerald-400 tracking-wider">
+            STATION SOLVED! CLUE &amp; PASSCODE UNLOCKED
+          </h3>
+          <p id="station-clue-card-subtitle" class="text-xs text-gray-300 font-mono mt-1">
+            Read the secret clue below to track down the physical location of the next QR code.
+          </p>
+        </div>
+
+        <!-- The Secret Location Clue -->
+        <div class="p-5 rounded-xl bg-black/80 border border-emerald-500/60 text-emerald-300 font-mono text-sm sm:text-base leading-relaxed text-center shadow-inner">
+          <span id="clue-revealed-text">
+            🔍 CLUE TO NEXT QR: Head to the Ground Floor Cafeteria. Look underneath the blue recycling bin near the beverage vending machine!
+          </span>
+        </div>
+
+        <!-- Prominent Passcode Box -->
+        <div id="station-passcode-reveal-banner" class="p-4 rounded-xl bg-emerald-950/40 border-2 border-dashed border-emerald-400 text-center space-y-1">
+          <div id="station-passcode-label" class="text-xs font-mono font-bold text-emerald-300 uppercase tracking-widest">
+            🔑 Passcode to Unlock Round 3:
+          </div>
+          <div id="station-revealed-passcode" class="text-2xl sm:text-3xl font-mono font-black text-white tracking-widest select-all py-1">
+            CIPHER-4720
+          </div>
+          <p class="text-[11px] text-gray-400 font-mono">
+            Enter this secret passcode below to advance to the next round.
+          </p>
+        </div>
+
+        <!-- Passcode Entry to Unlock Next Round -->
+        <form onsubmit="window.app.handleUnlockNextRound(event, 'challenge')" class="max-w-md mx-auto space-y-3 pt-2">
+          <label class="block text-xs font-mono text-gray-300 text-center uppercase tracking-wider">
+            Enter Secret Passcode to Advance:
+          </label>
+          <div class="flex gap-2">
+            <input type="text" id="round-passcode-input" required placeholder="e.g. CIPHER-4720"
+              autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+              class="cyber-input text-center font-mono font-bold tracking-widest uppercase text-base">
+            <button type="submit" id="round-unlock-submit-btn" class="btn-cyber px-6 font-bold flex-shrink-0 flex items-center justify-center gap-1.5">
+              <span>Unlock Round 3</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <p id="clue-station-hint" class="text-[11px] text-gray-400 text-center font-mono">
+            Check the printed station sheet near the physical QR for the unlock passcode.
+          </p>
+        </form>
+      </div>
+
+      <!-- Bottom Navigation Controls -->
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-800">
+        <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-5 py-2.5 border-gray-700 text-gray-300 hover:text-white flex items-center gap-2 font-bold">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Mission Hub
+        </button>
+        <button onclick="window.app.returnToScanner()" class="btn-cyber text-xs px-4 py-2.5 border-emerald-500/40 text-emerald-400 hover:bg-emerald-950 flex items-center gap-2">
+          <i data-lucide="scan-line" class="w-4 h-4"></i> Re-open Camera Scanner
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VIEW 4: LIVE LEADERBOARD
+       ======================================================================== -->
+  <section id="view-leaderboard" class="flex-1 max-w-5xl mx-auto w-full p-4 py-8 hidden space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+      <div>
+        <span class="text-xs font-mono text-amber-400 uppercase tracking-widest">Official Tournament Standings</span>
+        <h2 class="text-2xl sm:text-3xl font-cyber font-bold text-white flex items-center gap-2">
+          <i data-lucide="trophy" class="w-7 h-7 text-amber-400"></i> LIVE LEADERBOARD
+        </h2>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="leaderboard-back-btn" onclick="window.app.returnFromLeaderboard()" class="btn-cyber text-xs px-3.5 py-2 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950 flex items-center gap-1.5 transition-all">
+          <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Mission Hub
+        </button>
+        <button onclick="window.app.renderLeaderboard()" class="btn-cyber text-xs px-3.5 py-2 flex items-center gap-1.5">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Ranks
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Disqualification Banner on Leaderboard -->
+    <div id="leaderboard-disqualified-notice" class="hidden p-4 rounded-xl bg-red-950/70 border-2 border-red-500/80 shadow-[0_0_20px_rgba(255,0,85,0.4)] flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-red-900 border border-red-500 flex items-center justify-center text-red-400 flex-shrink-0">
+          <i data-lucide="shield-alert" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-red-400 font-cyber flex items-center gap-2">
+            TEAM CURRENTLY DISQUALIFIED
+            <span class="badge-disqualified text-[10px]">LOCKED</span>
+          </div>
+          <div class="text-xs text-gray-300 font-mono mt-0.5">
+            Reason: <span id="leaderboard-disq-reason" class="text-red-300 font-semibold">Security protocol breach.</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+        <button onclick="window.antiCheatEngine.checkReinstatementStatus()" class="btn-cyber btn-cyber-danger text-xs px-3.5 py-2 flex items-center gap-1.5 shadow-[0_0_10px_rgba(255,0,85,0.4)]">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Check Reinstatement
+        </button>
+        <button onclick="window.antiCheatEngine.showLockoutModalAgain()" class="btn-cyber text-xs px-3.5 py-2 border-gray-700 text-gray-300 hover:bg-slate-800 flex items-center gap-1.5">
+          <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-red-400"></i> Violation Details
+        </button>
+        <button onclick="window.app.logout()" class="btn-cyber text-xs px-3.5 py-2 border-red-500/40 text-red-400 hover:bg-red-950 flex items-center gap-1.5">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Sign Out
+        </button>
+      </div>
+    </div>
+
+    <div class="cyber-card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-gray-800 bg-slate-950/60 font-cyber text-xs text-gray-400 uppercase">
+              <th class="py-3 px-4 text-center w-16">Rank</th>
+              <th class="py-3 px-4">Team &amp; Members</th>
+              <th class="py-3 px-3">Round</th>
+              <th class="py-3 px-3">Score</th>
+              <th class="py-3 px-3">Time</th>
+              <th class="py-3 px-4 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-table-body" class="divide-y divide-gray-850">
+            <!-- Populated dynamically by app.js -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VIEW 5: TEAM ACCESS CODE ACTIVATION (CONTROL DESK VERIFICATION)
+       ======================================================================== -->
+  <section id="view-activation" class="flex-1 max-w-lg mx-auto w-full p-4 py-10 flex items-center justify-center hidden">
+    <div class="cyber-card cyber-corners p-6 sm:p-8 text-center space-y-5 border-amber-500/40 w-full shadow-[0_0_30px_rgba(245,158,11,0.2)]">
+      
+      <div class="w-16 h-16 mx-auto rounded-full bg-amber-950/70 border-2 border-amber-500/60 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+        <i data-lucide="shield-alert" class="w-8 h-8"></i>
+      </div>
+
+      <div>
+        <span class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/50 uppercase tracking-widest">
+          AWAITING CONTROL DESK CODE
+        </span>
+        <h2 class="font-cyber text-2xl font-bold text-white mt-2">
+          TOURNAMENT ACCESS CLEARANCE
+        </h2>
+        <p class="text-xs text-gray-300 font-mono mt-2 leading-relaxed">
+          Welcome, <strong id="activation-team-name" class="text-emerald-400 font-bold">Team</strong>!<br>
+          Your registration is confirmed. Please enter the Access Code issued to your team by the Tournament Admin at the Control Desk to unlock Round 1.
+        </p>
+      </div>
+
+      <form onsubmit="window.app.handleAccessCodeActivation(event)" class="space-y-4 max-w-sm mx-auto pt-2">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 text-left mb-1">ENTER YOUR ACCESS CODE</label>
+          <input type="text" id="access-code-input" required placeholder="e.g. SEEK-XXXX" autocomplete="off"
+            class="cyber-input text-center font-mono font-bold tracking-widest uppercase text-base border-emerald-500/40 focus:border-emerald-400">
+          <p class="text-[10px] text-gray-500 font-mono mt-1 text-left">
+            🛡️ Access Codes are distributed in person at the Event Desk on tournament day.
+          </p>
+        </div>
+
+        <button type="submit" class="btn-cyber w-full py-3 shadow-[0_0_15px_rgba(0,255,102,0.3)]">
+          <i data-lucide="unlock" class="w-4 h-4"></i> Verify Code &amp; Enter Tournament
+        </button>
+
+        <div class="pt-2">
+          <button type="button" onclick="window.app.logout()" class="text-xs font-mono text-gray-400 hover:text-white underline transition-colors">
+            Return to Team Sign In
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       ACCOUNT RECOVERY (FORGOT PASSWORD / FORGOT EMAIL) MODAL
+       ======================================================================== -->
+  <div id="modal-account-recovery" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="cyber-card max-w-md w-full p-6 space-y-4 border-emerald-500/60 shadow-[0_0_40px_rgba(0,255,102,0.2)] relative">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <i data-lucide="key-round" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-cyber font-bold text-white text-base">Account Recovery</h3>
+            <p class="text-[10px] font-mono text-gray-400">Reset secret password or retrieve registered email</p>
+          </div>
+        </div>
+        <button onclick="window.app.closeRecoveryModal()" class="p-1 rounded text-gray-400 hover:text-white transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="grid grid-cols-2 gap-2 p-1 bg-black/60 rounded-lg border border-gray-800 text-xs font-mono">
+        <button type="button" id="tab-rec-password" onclick="window.app.switchRecoveryTab('password')"
+          class="py-2 px-3 rounded text-center transition-all bg-emerald-500 text-black font-bold">
+          🔑 Reset Password
+        </button>
+        <button type="button" id="tab-rec-email" onclick="window.app.switchRecoveryTab('email')"
+          class="py-2 px-3 rounded text-center transition-all text-gray-400 hover:text-white font-medium">
+          🔍 Find Email
+        </button>
+      </div>
+
+      <!-- TAB 1: RESET PASSWORD FORM -->
+      <form id="form-rec-password" onsubmit="window.app.handlePasswordReset(event)" class="space-y-3 pt-1">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM EMAIL OR TEAM NAME *</label>
+          <input type="text" id="rec-pass-id" required class="cyber-input text-xs" placeholder="e.g. team@email.com or Cyber Ninjas">
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM LEADER'S NAME (FOR VERIFICATION) *</label>
+          <input type="text" id="rec-pass-leader" required class="cyber-input text-xs" placeholder="e.g. Alex Chen">
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">NEW PASSWORD *</label>
+          <input type="password" id="rec-pass-new" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Enter new secret password">
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">CONFIRM NEW PASSWORD *</label>
+          <input type="password" id="rec-pass-confirm" required minlength="3" class="cyber-input text-xs font-mono" placeholder="Re-enter new secret password">
+        </div>
+
+        <button type="submit" class="btn-cyber w-full py-2.5 mt-2">
+          <i data-lucide="check" class="w-4 h-4"></i> Update &amp; Save New Password
+        </button>
+      </form>
+
+      <!-- TAB 2: FIND EMAIL FORM -->
+      <form id="form-rec-email" onsubmit="window.app.handleEmailLookup(event)" class="space-y-3 pt-1 hidden">
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">REGISTERED TEAM NAME *</label>
+          <input type="text" id="rec-email-team" required class="cyber-input text-xs" placeholder="e.g. Cyber Ninjas">
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-400 mb-1">TEAM LEADER'S NAME *</label>
+          <input type="text" id="rec-email-leader" required class="cyber-input text-xs" placeholder="e.g. Alex Chen">
+        </div>
+
+        <button type="submit" class="btn-cyber w-full py-2.5 mt-2">
+          <i data-lucide="search" class="w-4 h-4"></i> Locate Registered Email
+        </button>
+
+        <div id="rec-email-result" class="hidden p-3 rounded-lg bg-black/80 border border-emerald-500/50 mt-3 text-center space-y-2">
+          <div class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Registered Email Located:</div>
+          <div id="rec-email-display" class="font-mono font-bold text-emerald-400 text-sm select-all">team@example.com</div>
+          <button type="button" onclick="window.app.useRecoveredEmail()" class="text-xs font-mono text-amber-300 hover:text-amber-200 underline font-semibold">
+            Click to fill in Login Box ➔
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/audio.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/anti-cheat.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

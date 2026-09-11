@@ -1,0 +1,416 @@
+/* ==========================================================================
+   SEEK & SCAN - CYBER NEON STYLESHEET
+   Matching Mission Briefing & High-Tech Tournament Theme
+   ========================================================================== */
+
+:root {
+  --bg-deep: #05080c;
+  --bg-surface: #0a0f16;
+  --bg-card: rgba(13, 20, 30, 0.75);
+  --border-neon: rgba(0, 255, 102, 0.28);
+  --border-neon-bright: #00ff66;
+  --neon-green: #00ff66;
+  --neon-glow: 0 0 15px rgba(0, 255, 102, 0.55), 0 0 30px rgba(0, 255, 102, 0.25);
+  --neon-blue: #00e5ff;
+  --neon-blue-glow: 0 0 15px rgba(0, 229, 255, 0.5);
+  --neon-pink: #ff0055;
+  --neon-red-glow: 0 0 20px rgba(255, 0, 85, 0.75);
+  --text-main: #f3f7fb;
+  --text-muted: #8395a7;
+  --font-cyber: 'Orbitron', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(0, 255, 102, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 100% 100%, rgba(0, 229, 255, 0.04) 0%, transparent 40%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  line-height: 1.5;
+}
+
+/* Subtle cyber scanline effect */
+body::after {
+  content: " ";
+  display: block;
+  position: fixed;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 4px;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* Typography Helpers */
+.font-cyber {
+  font-family: var(--font-cyber);
+  letter-spacing: 0.08em;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.text-neon {
+  color: var(--neon-green);
+  text-shadow: 0 0 10px rgba(0, 255, 102, 0.65);
+}
+
+.text-cyan {
+  color: var(--neon-blue);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+.text-danger {
+  color: var(--neon-pink);
+  text-shadow: 0 0 10px rgba(255, 0, 85, 0.65);
+}
+
+/* Cyber Cards & Panels */
+.cyber-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-neon);
+  border-radius: 12px;
+  position: relative;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 255, 102, 0.02);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cyber-card:hover {
+  border-color: rgba(0, 255, 102, 0.45);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 255, 102, 0.12);
+}
+
+/* Corner Accents for Cyberpunk aesthetic */
+.cyber-corners {
+  position: relative;
+}
+.cyber-corners::before {
+  content: "";
+  position: absolute;
+  top: -1px; left: -1px;
+  width: 14px; height: 14px;
+  border-top: 2px solid var(--neon-green);
+  border-left: 2px solid var(--neon-green);
+  border-top-left-radius: 10px;
+}
+.cyber-corners::after {
+  content: "";
+  position: absolute;
+  bottom: -1px; right: -1px;
+  width: 14px; height: 14px;
+  border-bottom: 2px solid var(--neon-green);
+  border-right: 2px solid var(--neon-green);
+  border-bottom-right-radius: 10px;
+}
+
+/* Mission Briefing Card styling directly from user image */
+.mission-briefing-card {
+  background: #030507;
+  border: 2px solid #00ff66;
+  border-radius: 16px;
+  box-shadow: 0 0 25px rgba(0, 255, 102, 0.35), inset 0 0 30px rgba(0, 255, 102, 0.05);
+}
+
+.mission-title-glow {
+  color: #00ff66;
+  font-family: var(--font-cyber);
+  font-size: 1.95rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 15px rgba(0, 255, 102, 0.9), 0 0 30px rgba(0, 255, 102, 0.5);
+}
+
+/* Cyber Neon Buttons */
+.btn-cyber {
+  font-family: var(--font-cyber);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.75rem 1.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--neon-green);
+  background: rgba(0, 255, 102, 0.1);
+  color: #00ff66;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-cyber:hover:not(:disabled) {
+  background: #00ff66;
+  color: #05080c;
+  box-shadow: var(--neon-glow);
+  transform: translateY(-1px);
+}
+
+.btn-cyber:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: #4a5568;
+  color: #718096;
+  background: rgba(45, 55, 72, 0.2);
+  box-shadow: none;
+}
+
+.btn-cyber-cyan {
+  border-color: var(--neon-blue);
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--neon-blue);
+}
+
+.btn-cyber-cyan:hover:not(:disabled) {
+  background: var(--neon-blue);
+  color: #05080c;
+  box-shadow: var(--neon-blue-glow);
+}
+
+.btn-cyber-danger {
+  border-color: var(--neon-pink);
+  background: rgba(255, 0, 85, 0.1);
+  color: var(--neon-pink);
+}
+
+.btn-cyber-danger:hover:not(:disabled) {
+  background: var(--neon-pink);
+  color: #ffffff;
+  box-shadow: var(--neon-red-glow);
+}
+
+/* Interactive Input Fields */
+.cyber-input {
+  width: 100%;
+  background: rgba(8, 14, 22, 0.85);
+  border: 1px solid rgba(0, 255, 102, 0.25);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.25s ease;
+}
+
+.cyber-input:focus {
+  border-color: var(--neon-green);
+  box-shadow: 0 0 12px rgba(0, 255, 102, 0.35);
+  background: rgba(11, 19, 30, 0.95);
+}
+
+/* Question Selection Option Button */
+.option-btn {
+  background: rgba(13, 22, 34, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  text-align: left;
+  color: #d1d5db;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.option-btn:hover:not(:disabled) {
+  border-color: var(--neon-green);
+  background: rgba(0, 255, 102, 0.08);
+  color: #ffffff;
+  transform: translateX(3px);
+}
+
+.option-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.option-btn.correct:disabled,
+.option-btn.incorrect:disabled {
+  opacity: 0.95;
+  cursor: default;
+}
+
+.option-btn.selected {
+  border-color: var(--neon-green);
+  background: rgba(0, 255, 102, 0.15);
+  color: #00ff66;
+  box-shadow: 0 0 15px rgba(0, 255, 102, 0.2);
+}
+
+.option-btn.correct {
+  border-color: #00ff66 !important;
+  background: rgba(0, 255, 102, 0.25) !important;
+  color: #00ff66 !important;
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.4);
+}
+
+.option-btn.incorrect {
+  border-color: var(--neon-pink) !important;
+  background: rgba(255, 0, 85, 0.25) !important;
+  color: var(--neon-pink) !important;
+  box-shadow: 0 0 20px rgba(255, 0, 85, 0.4);
+}
+
+.option-badge {
+  font-family: var(--font-cyber);
+  font-weight: 700;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.option-btn.selected .option-badge {
+  background: var(--neon-green);
+  color: #000000;
+  border-color: var(--neon-green);
+}
+
+/* QR Camera Viewfinder */
+.scanner-viewport-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 2px solid var(--neon-green);
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.3);
+  background: #000000;
+  min-height: 280px;
+}
+
+#qr-reader {
+  width: 100% !important;
+  border: none !important;
+}
+
+#qr-reader video {
+  border-radius: 10px;
+  object-fit: cover !important;
+  width: 100% !important;
+}
+
+/* Animated laser sweep inside QR scanner */
+.laser-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #00ff66, transparent);
+  box-shadow: 0 0 15px #00ff66;
+  animation: sweep 2.2s ease-in-out infinite;
+  z-index: 10;
+  pointer-events: none;
+}
+
+@keyframes sweep {
+  0% { top: 5%; opacity: 0.2; }
+  50% { top: 90%; opacity: 1; }
+  100% { top: 5%; opacity: 0.2; }
+}
+
+/* Fullscreen Anti-Cheat Disqualification Modal */
+.disqualification-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 2, 4, 0.96);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  backdrop-filter: blur(20px);
+  animation: alarmPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes alarmPulse {
+  0% { box-shadow: inset 0 0 50px rgba(255, 0, 85, 0.4); }
+  100% { box-shadow: inset 0 0 150px rgba(255, 0, 85, 0.85); }
+}
+
+/* Badge Glows */
+.badge-neon {
+  background: rgba(0, 255, 102, 0.12);
+  color: #00ff66;
+  border: 1px solid rgba(0, 255, 102, 0.35);
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-family: var(--font-cyber);
+}
+
+.badge-disqualified {
+  background: rgba(255, 0, 85, 0.2);
+  color: #ff0055;
+  border: 1px solid rgba(255, 0, 85, 0.5);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-family: var(--font-cyber);
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0.4; }
+}
+
+/* Printable Station QR Sheet Styling */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-station-sheet, #printable-station-sheet * {
+    visibility: visible;
+  }
+  #printable-station-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 2rem;
+  }
+}
+
+/* Prevent accidental text highlight / gestures during quiz */
+.secure-question-zone {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}

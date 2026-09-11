@@ -1,0 +1,314 @@
+/* ==========================================================================
+   SEEK & SCAN - SUPABASE INTEGRATION & CLOUD CLIENT
+   Directly connected to your Supabase Project: rwstjqfqouaviiepkzjz
+   ========================================================================== */
+
+const SUPABASE_PROJECT_URL = "https://rwstjqfqouaviiepkzjz.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_t0cQGmk3MOFpTVfZl15Ylw_0Qjyra2v";
+
+class SupabaseManager {
+  constructor() {
+    this.client = null;
+    this.url = SUPABASE_PROJECT_URL;
+    this.anonKey = SUPABASE_ANON_KEY;
+    this.isConnected = false;
+    this.init();
+  }
+
+  init() {
+    if (this.url && this.anonKey && window.supabase) {
+      try {
+        // Clean URL to base root
+        const cleanUrl = this.url.replace(/\/rest\/v1\/?$/, "");
+        this.client = window.supabase.createClient(cleanUrl, this.anonKey);
+        this.isConnected = true;
+        console.log("⚡ Supabase Client Initialized with Project:", cleanUrl);
+      } catch (e) {
+        console.warn("Failed to initialize Supabase client:", e);
+        this.isConnected = false;
+      }
+    }
+  }
+
+  isConfigured() {
+    return Boolean(this.client && this.url && this.anonKey);
+  }
+
+  // Fetch rounds and questions from live Supabase if available
+  async fetchLiveRounds() {
+    if (!this.client) return null;
+    try {
+      const { data: roundsData, error: rErr } = await this.client
+        .from("rounds")
+        .select("*")
+        .order("round_number", { ascending: true });
+
+      if (rErr || !roundsData || roundsData.length === 0) {
+        return null; // Tables not created yet in Supabase or empty
+      }
+
+      const { data: questionsData, error: qErr } = await this.client
+        .from("questions")
+        .select("*")
+        .order("order_index", { ascending: true });
+
+      // Merge questions into rounds
+      const rounds = roundsData.map(r => {
+        const roundQuestions = (questionsData || [])
+          .filter(q => q.round_id === r.id)
+          .map(q => ({
+            id: q.id,
+            order_index: q.order_index,
+            question_text: q.question_text,
+            options: [q.option_a, q.option_b, q.option_c, q.option_d],
+            correct_index: ['A', 'B', 'C', 'D'].indexOf((q.correct_option || 'A').toUpperCase()),
+            points: q.points || 20,
+            hint: q.hint || ""
+          }));
+
+        return {
+          round_number: r.round_number,
+          title: r.title,
+          description: r.description,
+          qr_code_key: r.qr_code_key,
+          unlock_code: r.unlock_code,
+          location_clue: r.location_clue,
+          location_name: r.location_name,
+          questions: roundQuestions
+        };
+      });
+
+      return rounds;
+    } catch (e) {
+      console.warn("Could not fetch rounds from Supabase:", e);
+      return null;
+    }
+  }
+
+  // --- Database Sync Operations ---
+  async fetchLiveTeams() {
+    if (!this.client) return null;
+    try {
+      const { data, error } = await this.client
+        .from("teams")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.warn("Supabase fetchLiveTeams error:", error);
+        return null;
+      }
+      return data;
+    } catch (e) {
+      console.warn("Supabase fetchLiveTeams exception:", e);
+      return null;
+    }
+  }
+
+  async fetchTeams() {
+    return this.fetchLiveTeams();
+  }
+
+  async insertTeam(teamData) {
+    if (!this.client) return null;
+    try {
+      const payload = {
+        name: teamData.name,
+        leader_name: teamData.leader_name,
+        members: teamData.members,
+        email: teamData.email,
+        password_hash: teamData.password,
+        avatar: teamData.avatar || "neon-wolf",
+        role: teamData.role || "team",
+        access_code: teamData.access_code || null,
+        is_approved: Boolean(teamData.is_approved),
+        is_disqualified: Boolean(teamData.is_disqualified)
+      };
+
+      // Only pass explicit UUID if it matches UUID v4 regex, otherwise let Supabase default uuid_generate_v4() handle it
+      if (teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id)) {
+        payload.id = teamData.id;
+      }
+
+      const { data, error } = await this.client.from("teams").upsert(payload, { onConflict: 'email' }).select().single();
+      if (error) {
+        console.error("❌ Supabase insertTeam error:", error);
+      } else {
+        console.log("✅ Team successfully saved in Supabase Table Editor:", data);
+        if (data && data.id) {
+          teamData.id = data.id;
+        }
+      }
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase insertTeam exception:", e);
+    }
+  }
+
+  async updateTeam(teamData) {
+    if (!this.client || !teamData) return null;
+    try {
+      const isUuid = teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id);
+
+      const updateFields = {
+        access_code: teamData.access_code || null,
+        is_approved: Boolean(teamData.is_approved),
+        is_disqualified: Boolean(teamData.is_disqualified),
+        disqualification_reason: teamData.disqualification_reason || null,
+        disqualified_at: teamData.disqualified_at || null
+      };
+
+      if (teamData.password) {
+        updateFields.password_hash = teamData.password;
+      }
+
+      let query = this.client.from("teams").update(updateFields);
+      if (isUuid) {
+        query = query.eq("id", teamData.id);
+      } else if (teamData.email) {
+        query = query.eq("email", teamData.email);
+      } else {
+        return null;
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.warn("Supabase updateTeam error:", error);
+      } else {
+        console.log("✅ Supabase team updated:", teamData.name, "is_disqualified:", teamData.is_disqualified);
+      }
+
+      // Upsert progress if valid UUID
+      if (isUuid) {
+        await this.client.from("team_progress").upsert({
+          team_id: teamData.id,
+          current_round: teamData.current_round || 1,
+          questions_solved: teamData.questions_solved || 0,
+          score: teamData.score || 0,
+          elapsed_seconds: teamData.elapsed_seconds || 0,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'team_id' });
+      }
+
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase updateTeam error:", e);
+      return null;
+    }
+  }
+
+  async resetPassword(teamId, newPassword) {
+    if (!this.client) return null;
+    try {
+      const { data, error } = await this.client
+        .from("teams")
+        .update({ password_hash: newPassword })
+        .eq("id", teamId);
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase resetPassword error:", e);
+      return null;
+    }
+  }
+
+  async updateRound(roundData) {
+    if (!this.client) return null;
+    try {
+      const { data, error } = await this.client
+        .from("rounds")
+        .update({
+          title: roundData.title,
+          description: roundData.description,
+          location_clue: roundData.location_clue,
+          unlock_code: roundData.unlock_code,
+          location_name: roundData.location_name
+        })
+        .eq("round_number", roundData.round_number);
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase updateRound error:", e);
+      return null;
+    }
+  }
+
+  async insertCheatLog(violation) {
+    if (!this.client) return null;
+    try {
+      const payload = {
+        violation_type: violation.violation_type,
+        round_number: violation.round_number,
+        details: violation.details,
+        timestamp: violation.timestamp
+      };
+      if (violation.team_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(violation.team_id)) {
+        payload.team_id = violation.team_id;
+      }
+      const { data, error } = await this.client.from("cheat_logs").insert(payload);
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase insertCheatLog error:", e);
+    }
+  }
+
+  async deleteTeam(teamId, teamEmail = null) {
+    if (!this.client) return null;
+    try {
+      let resolvedId = null;
+
+      if (teamId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+        resolvedId = teamId;
+      }
+
+      // If no valid UUID yet, resolve by email in Supabase
+      if (!resolvedId && teamEmail) {
+        try {
+          const { data } = await this.client.from("teams").select("id").eq("email", teamEmail).maybeSingle();
+          if (data && data.id) {
+            resolvedId = data.id;
+          }
+        } catch (lookupErr) {}
+      }
+
+      // 1. Delete child records in progress & cheat logs
+      if (resolvedId) {
+        await this.client.from("team_progress").delete().eq("team_id", resolvedId);
+        await this.client.from("cheat_logs").delete().eq("team_id", resolvedId);
+      }
+
+      // 2. Delete team from teams table
+      let deleteResult = null;
+      if (resolvedId) {
+        deleteResult = await this.client.from("teams").delete().eq("id", resolvedId);
+      }
+      if (teamEmail) {
+        // Also delete by email to ensure complete clean up
+        deleteResult = await this.client.from("teams").delete().eq("email", teamEmail);
+      }
+
+      console.log("✅ Team and associated records deleted from Supabase:", resolvedId || teamEmail);
+      return deleteResult;
+    } catch (e) {
+      console.warn("Supabase deleteTeam exception:", e);
+      return null;
+    }
+  }
+
+  async deleteCheatLogsForTeam(teamId, teamEmail = null) {
+    if (!this.client) return null;
+    try {
+      if (teamId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+        await this.client.from("cheat_logs").delete().eq("team_id", teamId);
+      }
+      if (teamEmail) {
+        const { data } = await this.client.from("teams").select("id").eq("email", teamEmail).maybeSingle();
+        if (data && data.id) {
+          await this.client.from("cheat_logs").delete().eq("team_id", data.id);
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase deleteCheatLogsForTeam exception:", e);
+    }
+  }
+}
+
+window.supabaseClient = new SupabaseManager();
