@@ -393,6 +393,46 @@ class AdminPageController {
     }
   }
 
+  async purgeAllTeams() {
+    const activeTeams = (window.gameStore.teams || []).filter(t => t.role !== 'admin');
+    if (activeTeams.length === 0) {
+      this.showToast("No active teams to purge. Roster is already clean.", "info");
+      return;
+    }
+
+    const doConfirm = typeof window !== 'undefined' && window.confirm ? 
+      window.confirm(`⚠️ DANGER: PURGE ALL REGISTERED TEAMS\n\nAre you sure you want to permanently delete all ${activeTeams.length} registered team(s)?\n\nThis will remove them from Supabase Cloud and all connected devices, clearing all progress and violation logs.\n\nClick OK to confirm permanent deletion.`) : true;
+
+    if (!doConfirm) return;
+
+    this.showToast("Purging all teams from cloud and local storage...", "warning");
+
+    const teamIds = activeTeams.map(t => t.id);
+    for (const id of teamIds) {
+      await window.gameStore.deleteTeam(id);
+    }
+
+    // Also ensure Supabase cloud soft-deletes all non-admin teams
+    if (window.supabaseClient && window.supabaseClient.isConfigured()) {
+      try {
+        await window.supabaseClient.client.from("teams").update({
+          role: 'deleted',
+          is_approved: false,
+          disqualification_reason: 'Tournament Roster Purge by Admin'
+        }).eq("role", "team");
+      } catch (e) {
+        console.warn("Error updating teams role in Supabase:", e);
+      }
+    }
+
+    if (this.activeTeamStudioId) {
+      this.closeTeamCustomStudio();
+    }
+
+    this.renderAll();
+    this.showToast(`✅ Successfully purged ${teamIds.length} team(s) from cloud & local storage.`, "success");
+  }
+
   dismissCheatLog(logId) {
     const doConfirm = typeof window !== 'undefined' && window.confirm ? window.confirm("Dismiss and remove this fair-play violation log?") : true;
     if (doConfirm) {

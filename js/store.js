@@ -1253,6 +1253,25 @@ class GameStore {
           }
         });
 
+        // Persist deleted teams list
+        try {
+          localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams || []));
+        } catch (e) {}
+
+        // 1.5 Auto-sync local deletions to Supabase if any remotely active team was deleted locally
+        const leakedRemote = activeRemote.filter(remoteTeam => 
+          this.deletedTeams.some(d => 
+            (d.id && d.id === remoteTeam.id) || 
+            (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
+            (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
+          )
+        );
+        if (leakedRemote.length > 0 && window.supabaseClient && typeof window.supabaseClient.deleteTeam === 'function') {
+          for (const leaked of leakedRemote) {
+            window.supabaseClient.deleteTeam(leaked.id, leaked.email, leaked.name);
+          }
+        }
+
         // 2. Build quick lookup sets for active remote teams
         const activeRemoteIds = new Set(activeRemote.map(r => r.id).filter(Boolean));
         const activeRemoteEmails = new Set(activeRemote.map(r => (r.email || '').toLowerCase()).filter(Boolean));

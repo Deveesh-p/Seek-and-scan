@@ -370,10 +370,10 @@ class SupabaseManager {
         await this.client.from("cheat_logs").delete().eq("team_id", resolvedId);
       }
       if (teamEmail) {
-        await this.client.from("teams").update(softDeletePayload).eq("email", teamEmail);
+        await this.client.from("teams").update(softDeletePayload).ilike("email", teamEmail);
       }
       if (teamName) {
-        await this.client.from("teams").update(softDeletePayload).eq("name", teamName);
+        await this.client.from("teams").update(softDeletePayload).ilike("name", teamName);
       }
 
       // 2. ALSO ATTEMPT HARD DELETE FROM SUPABASE
@@ -382,10 +382,10 @@ class SupabaseManager {
         deleteResult = await this.client.from("teams").delete().eq("id", resolvedId);
       }
       if (teamEmail) {
-        deleteResult = await this.client.from("teams").delete().eq("email", teamEmail);
+        deleteResult = await this.client.from("teams").delete().ilike("email", teamEmail);
       }
       if (teamName) {
-        await this.client.from("teams").delete().eq("name", teamName);
+        await this.client.from("teams").delete().ilike("name", teamName);
       }
 
       console.log("✅ Team and associated records deleted/marked removed from Supabase:", resolvedId || teamEmail || teamName);
@@ -393,6 +393,31 @@ class SupabaseManager {
     } catch (e) {
       console.warn("Supabase deleteTeam exception:", e);
       return null;
+    }
+  }
+
+  async syncDeletedTeams(deletedList) {
+    if (!this.client || !Array.isArray(deletedList) || deletedList.length === 0) return;
+    try {
+      const softDeletePayload = {
+        role: 'deleted',
+        is_approved: false,
+        disqualification_reason: 'Removed by Tournament Admin'
+      };
+      for (const d of deletedList) {
+        if (!d) continue;
+        if (d.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d.id)) {
+          await this.client.from("teams").update(softDeletePayload).eq("id", d.id).neq("role", "admin");
+        }
+        if (d.email) {
+          await this.client.from("teams").update(softDeletePayload).ilike("email", d.email).neq("role", "admin");
+        }
+        if (d.name) {
+          await this.client.from("teams").update(softDeletePayload).ilike("name", d.name).neq("role", "admin");
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase syncDeletedTeams exception:", e);
     }
   }
 
