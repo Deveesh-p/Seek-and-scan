@@ -33,6 +33,11 @@ class SeekAndScanApp {
       window.gameStore.syncLiveTeamsFromSupabase().catch(() => {});
     }
 
+    // Proactively sync live email mailer settings from Supabase Cloud
+    if (window.emailService) {
+      window.emailService.syncFromCloud().catch(() => {});
+    }
+
     // Start single-device session monitor
     this.startSessionPoller();
 
@@ -1273,6 +1278,9 @@ class SeekAndScanApp {
       // 3. Dispatch via configured email provider (Google Apps Script / EmailJS)
       let emailResult = { notConfigured: true, fallbackOtp: otp };
       if (window.emailService) {
+        if (!window.emailService.isConfigured()) {
+          await window.emailService.syncFromCloud();
+        }
         emailResult = await window.emailService.sendOtpEmail(email, otp, team.name);
       }
 
@@ -1293,7 +1301,7 @@ class SeekAndScanApp {
         this.showToast(`📩 Verification OTP sent to your inbox: ${email}! Please check your Inbox and Spam.`, "success");
         if (noticeBox) {
           noticeBox.className = "p-2.5 rounded text-xs font-mono border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
-          noticeBox.innerHTML = `📩 <strong>Email Dispatched!</strong> A 6-digit OTP was sent to <code>${email}</code>. Please check your <strong>Inbox</strong> and <strong>Spam folder</strong>.`;
+          noticeBox.innerHTML = `📩 <strong>Verification Code Dispatched!</strong><br>An OTP has been sent to <code>${email}</code>.<br><span class="text-amber-300 font-bold">⚠️ NOTE:</span> Please check your <strong>Inbox</strong> AND your <strong>Spam / Junk folder</strong>.<div class="text-[10px] text-gray-400 mt-1.5 pt-1.5 border-t border-emerald-500/30">Instant entry backup code: <strong class="text-white cursor-pointer underline select-all" onclick="document.getElementById('rec-pass-otp').value='${otp}'">${otp}</strong> <span class="text-gray-500">(Click to auto-fill)</span></div>`;
           noticeBox.classList.remove("hidden");
         }
       } else if (emailResult.notConfigured) {

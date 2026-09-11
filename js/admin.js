@@ -78,6 +78,12 @@ class AdminPageController {
       this.renderAll();
     }
 
+    // Live sync email mailer configuration from Supabase
+    if (window.emailService) {
+      await window.emailService.syncFromCloud();
+      this.renderEmailConfig();
+    }
+
     // Start background auto-sync so newly registered teams appear automatically without manual refresh
     if (this.autoSyncTimer) clearInterval(this.autoSyncTimer);
     this.autoSyncTimer = setInterval(async () => {
@@ -837,6 +843,17 @@ function handleSend(data) {
 }`;
     }
 
+    const cloudBadge = document.getElementById("admin-email-cloud-badge");
+    if (cloudBadge) {
+      if (config.isConfigured) {
+        cloudBadge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
+        cloudBadge.innerHTML = `<i data-lucide="cloud-check" class="w-3.5 h-3.5 text-emerald-400"></i> Cloud Synced Across All Devices`;
+      } else {
+        cloudBadge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-gray-700 bg-black/40 text-gray-400";
+        cloudBadge.innerHTML = `<i data-lucide="cloud-off" class="w-3.5 h-3.5 text-gray-500"></i> Cloud: Pending Setup`;
+      }
+    }
+
     if (badge) {
       if (config.isGasConfigured) {
         badge.className = "px-2.5 py-1 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 border border-emerald-500/50 bg-emerald-950/60 text-emerald-300";
@@ -852,7 +869,7 @@ function handleSend(data) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  handleSaveGasConfig(e) {
+  async handleSaveGasConfig(e) {
     e.preventDefault();
     const gasUrl = (document.getElementById("admin-email-gas-url")?.value || "").trim();
 
@@ -862,23 +879,23 @@ function handleSend(data) {
     }
 
     if (window.emailService) {
-      const isOk = window.emailService.saveGasUrl(gasUrl);
+      const isOk = await window.emailService.saveGasUrl(gasUrl, true);
       this.renderEmailConfig();
       if (isOk) {
-        this.showToast("🎉 Google Mailer URL saved! You can now test inbox delivery below.", "success");
+        this.showToast("🎉 Google Mailer URL saved and synced to cloud across all devices!", "success");
       } else {
         this.showToast("Invalid URL format. Must start with https://script.google.com/macros/s/...", "warning");
       }
     }
   }
 
-  handleClearGasConfig() {
+  async handleClearGasConfig() {
     if (window.emailService) {
-      window.emailService.clearGasUrl();
+      await window.emailService.clearGasUrl();
       const gasInput = document.getElementById("admin-email-gas-url");
       if (gasInput) gasInput.value = "";
       this.renderEmailConfig();
-      this.showToast("Google Mailer URL cleared.", "info");
+      this.showToast("Google Mailer URL cleared from device and cloud.", "info");
     }
   }
 
@@ -899,26 +916,26 @@ function handleSend(data) {
     }
   }
 
-  handleSaveEmailJsConfig(e) {
+  async handleSaveEmailJsConfig(e) {
     e.preventDefault();
     const serviceId = (document.getElementById("admin-email-service-id")?.value || "").trim();
     const templateId = (document.getElementById("admin-email-template-id")?.value || "").trim();
     const publicKey = (document.getElementById("admin-email-public-key")?.value || "").trim();
 
     if (window.emailService) {
-      const isOk = window.emailService.saveEmailJsConfig(serviceId, templateId, publicKey);
+      const isOk = await window.emailService.saveEmailJsConfig(serviceId, templateId, publicKey, true);
       this.renderEmailConfig();
       if (isOk) {
-        this.showToast("✅ EmailJS credentials saved!", "success");
+        this.showToast("✅ EmailJS credentials saved and synced to cloud!", "success");
       } else {
         this.showToast("Settings saved! Please provide all 3 fields to complete EmailJS setup.", "warning");
       }
     }
   }
 
-  handleClearEmailJsConfig() {
+  async handleClearEmailJsConfig() {
     if (window.emailService) {
-      window.emailService.clearEmailJsConfig();
+      await window.emailService.clearEmailJsConfig();
       const s = document.getElementById("admin-email-service-id");
       const t = document.getElementById("admin-email-template-id");
       const p = document.getElementById("admin-email-public-key");
@@ -926,7 +943,7 @@ function handleSend(data) {
       if (t) t.value = "";
       if (p) p.value = "";
       this.renderEmailConfig();
-      this.showToast("EmailJS settings cleared.", "info");
+      this.showToast("EmailJS settings cleared from device and cloud.", "info");
     }
   }
 

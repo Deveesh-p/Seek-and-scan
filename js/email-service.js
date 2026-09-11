@@ -20,6 +20,11 @@ class EmailService {
     this.templateId = localStorage.getItem('seek_scan_emailjs_template_id') || DEFAULT_EMAIL_CONFIG.templateId || '';
     this.publicKey = localStorage.getItem('seek_scan_emailjs_public_key') || DEFAULT_EMAIL_CONFIG.publicKey || '';
     this.init();
+
+    // Proactively pull cloud email config from Supabase in background
+    setTimeout(() => {
+      this.syncFromCloud().catch(() => {});
+    }, 500);
   }
 
   init() {
@@ -30,6 +35,56 @@ class EmailService {
       } catch (e) {
         console.warn("EmailJS init warning:", e);
       }
+    }
+  }
+
+  async syncFromCloud() {
+    if (!window.supabaseClient || !window.supabaseClient.isConfigured()) return false;
+    try {
+      const cloudConfig = await window.supabaseClient.fetchSystemEmailConfig();
+      if (cloudConfig) {
+        let changed = false;
+        if (cloudConfig.gasUrl && cloudConfig.gasUrl !== this.gasUrl) {
+          this.gasUrl = cloudConfig.gasUrl;
+          try { localStorage.setItem('seek_scan_gas_url', this.gasUrl); } catch (e) {}
+          changed = true;
+        }
+        if (cloudConfig.serviceId && cloudConfig.serviceId !== this.serviceId) {
+          this.serviceId = cloudConfig.serviceId;
+          try { localStorage.setItem('seek_scan_emailjs_service_id', this.serviceId); } catch (e) {}
+          changed = true;
+        }
+        if (cloudConfig.templateId && cloudConfig.templateId !== this.templateId) {
+          this.templateId = cloudConfig.templateId;
+          try { localStorage.setItem('seek_scan_emailjs_template_id', this.templateId); } catch (e) {}
+          changed = true;
+        }
+        if (cloudConfig.publicKey && cloudConfig.publicKey !== this.publicKey) {
+          this.publicKey = cloudConfig.publicKey;
+          try { localStorage.setItem('seek_scan_emailjs_public_key', this.publicKey); } catch (e) {}
+          changed = true;
+        }
+        if (changed) {
+          this.init();
+          console.log("☁️ Successfully loaded live email configuration from Supabase Cloud.");
+        }
+        return true;
+      } else if (this.isConfigured() && window.location.pathname.includes("admin.html")) {
+        // If admin has local config but cloud is empty, sync local config up to cloud
+        await this.pushToCloud();
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async pushToCloud() {
+    if (!window.supabaseClient || !window.supabaseClient.isConfigured()) return false;
+    try {
+      return await window.supabaseClient.saveSystemEmailConfig(this.getConfig());
+    } catch (e) {
+      return false;
     }
   }
 
@@ -63,22 +118,26 @@ class EmailService {
     };
   }
 
-  saveGasUrl(url) {
+  async saveGasUrl(url, syncToCloud = true) {
     this.gasUrl = (url || '').trim();
     try {
       localStorage.setItem('seek_scan_gas_url', this.gasUrl);
     } catch (e) {}
+    if (syncToCloud) {
+      await this.pushToCloud();
+    }
     return this.isGasConfigured();
   }
 
-  clearGasUrl() {
+  async clearGasUrl() {
     this.gasUrl = '';
     try {
       localStorage.removeItem('seek_scan_gas_url');
     } catch (e) {}
+    await this.pushToCloud();
   }
 
-  saveEmailJsConfig(serviceId, templateId, publicKey) {
+  async saveEmailJsConfig(serviceId, templateId, publicKey, syncToCloud = true) {
     this.serviceId = (serviceId || '').trim();
     this.templateId = (templateId || '').trim();
     this.publicKey = (publicKey || '').trim();
@@ -90,10 +149,13 @@ class EmailService {
     } catch (e) {}
 
     this.init();
+    if (syncToCloud) {
+      await this.pushToCloud();
+    }
     return this.isEmailJsConfigured();
   }
 
-  clearEmailJsConfig() {
+  async clearEmailJsConfig() {
     this.serviceId = '';
     this.templateId = '';
     this.publicKey = '';
@@ -102,6 +164,7 @@ class EmailService {
       localStorage.removeItem('seek_scan_emailjs_template_id');
       localStorage.removeItem('seek_scan_emailjs_public_key');
     } catch (e) {}
+    await this.pushToCloud();
   }
 
   /**
@@ -112,6 +175,11 @@ class EmailService {
    */
   async sendOtpEmail(toEmail, otpCode, teamName = 'Team') {
     const cleanEmail = (toEmail || '').trim().toLowerCase();
+
+    // Ensure we have the latest cloud configuration before attempting dispatch
+    if (!this.isConfigured()) {
+      await this.syncFromCloud();
+    }
 
     // 1. Primary Channel: Google Apps Script Webhook (Free, zero external service)
     if (this.isGasConfigured()) {
@@ -126,19 +194,30 @@ class EmailService {
           team_name: teamName
         });
 
-        // Use mode: 'no-cors' with text/plain to prevent CORS preflight restrictions
-        await fetch(this.gasUrl, {
+        // 1. Post text/plain with mode: 'no-cors' (avoids CORS preflight)
+        const postPromise = fetch(this.gasUrl, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain' },
           body: payload
         });
 
+        // 2. Dual redundant channel: Also trigger GET parameters in case environment blocks POST
+        try {
+          const getUrl = new URL(this.gasUrl);
+          getUrl.searchParams.set('to', cleanEmail);
+          getUrl.searchParams.set('otp', otpCode);
+          getUrl.searchParams.set('team', teamName);
+          fetch(getUrl.toString(), { mode: 'no-cors' }).catch(() => {});
+        } catch (getErr) {}
+
+        await postPromise;
+
         console.log("✅ Google Apps Script Webhook triggered email to:", cleanEmail);
         return {
           success: true,
           method: 'google_apps_script',
-          message: `Verification OTP successfully sent to your inbox: ${cleanEmail}!`
+          message: `Verification OTP successfully sent to your inbox: ${cleanEmail}! Please check your Inbox and Spam folder.`
         };
       } catch (gasErr) {
         console.warn("⚠️ Google Apps Script POST failed, trying GET fallback:", gasErr);
@@ -151,7 +230,7 @@ class EmailService {
           return {
             success: true,
             method: 'google_apps_script_get',
-            message: `Verification OTP sent to ${cleanEmail}!`
+            message: `Verification OTP sent to ${cleanEmail}! Please check your Inbox and Spam folder.`
           };
         } catch (getErr) {
           console.warn("Google Apps Script GET fallback failed:", getErr);
@@ -177,7 +256,7 @@ class EmailService {
         return {
           success: true,
           method: 'emailjs',
-          message: `Verification OTP successfully sent to ${cleanEmail}`
+          message: `Verification OTP successfully sent to ${cleanEmail}! Please check your Inbox and Spam folder.`
         };
       } catch (err) {
         console.warn("⚠️ EmailJS send encountered an error:", err);

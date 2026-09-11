@@ -412,6 +412,53 @@ class SupabaseManager {
       console.warn("Supabase deleteCheatLogsForTeam exception:", e);
     }
   }
+
+  // --- Cloud Email Configuration Sync (Cross-Device Delivery) ---
+  async saveSystemEmailConfig(config) {
+    if (!this.client) return false;
+    try {
+      const payloadStr = JSON.stringify(config || {});
+      const { error } = await this.client
+        .from("teams")
+        .update({ disqualification_reason: payloadStr })
+        .eq("role", "admin");
+      if (!error) {
+        console.log("☁️ Email config successfully synced to Supabase Cloud.");
+        return true;
+      }
+      console.warn("Supabase saveSystemEmailConfig error:", error);
+      return false;
+    } catch (e) {
+      console.warn("Supabase saveSystemEmailConfig exception:", e);
+      return false;
+    }
+  }
+
+  async fetchSystemEmailConfig() {
+    if (!this.client) return null;
+    try {
+      const { data, error } = await this.client
+        .from("teams")
+        .select("disqualification_reason")
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (!error && data && data.disqualification_reason) {
+        try {
+          const parsed = JSON.parse(data.disqualification_reason);
+          return parsed;
+        } catch (err) {
+          if (data.disqualification_reason.startsWith("http")) {
+            return { gasUrl: data.disqualification_reason };
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      console.warn("Supabase fetchSystemEmailConfig exception:", e);
+      return null;
+    }
+  }
 }
 
 window.supabaseClient = new SupabaseManager();
