@@ -445,40 +445,7 @@ class SeekAndScanApp {
       const cleanEmail = email.toLowerCase();
       const cleanName = name.toLowerCase();
 
-      // 1. Check if name or email is already taken by an active team (allow re-registering if removed)
-      if (window.gameStore) {
-        const existingLocal = (window.gameStore.teams || []).find(t =>
-          (t.email && t.email.toLowerCase() === cleanEmail) ||
-          (t.name && t.name.toLowerCase() === cleanName)
-        );
-        if (existingLocal) {
-          const isDel = existingLocal.role === 'deleted' || existingLocal.is_deleted || (window.gameStore.deletedTeams || []).some(d =>
-            (d.id && d.id === existingLocal.id) ||
-            (d.email && existingLocal.email && d.email.toLowerCase() === existingLocal.email.toLowerCase()) ||
-            (d.name && existingLocal.name && d.name.toLowerCase() === existingLocal.name.toLowerCase())
-          );
-          if (!isDel && existingLocal.role !== 'admin') {
-            this.showToast("A team with this name or email already exists! Please choose a different name or email.", "error");
-            return;
-          }
-        }
-      }
 
-      // 2. Check remote Supabase database (allow re-registering if team was removed/deleted)
-      if (window.supabaseClient && typeof window.supabaseClient.checkTeamExists === 'function') {
-        try {
-          const remoteTeam = await window.supabaseClient.checkTeamExists(email, name);
-          if (remoteTeam) {
-            // Only block if remote team is currently active (not deleted and not admin)
-            if (remoteTeam.role !== 'deleted' && !remoteTeam.is_deleted && remoteTeam.role !== 'admin') {
-              this.showToast("A team with this name or email already exists! Please choose a different name or email.", "error");
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn("Supabase team existence check warning:", err);
-        }
-      }
 
       const membersString = roster.join(", ");
 

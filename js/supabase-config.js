@@ -152,7 +152,7 @@ class SupabaseManager {
       const cleanEmail = (teamData.email || '').trim().toLowerCase();
       const cleanName = (teamData.name || '').trim();
 
-      // Check if there is an existing row with this email or name in Supabase
+      // Check if there is an existing row with this email or name in Supabase (including deleted/removed teams)
       let existingId = null;
       try {
         const { data: eRow } = await this.client.from("teams").select("id").ilike("email", cleanEmail).limit(1);
@@ -180,29 +180,49 @@ class SupabaseManager {
         disqualified_at: null
       };
 
+      let resData = null;
+      let resError = null;
+
       if (existingId) {
         payload.id = existingId;
         teamData.id = existingId;
-      } else if (teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id)) {
-        payload.id = teamData.id;
+        const { data, error } = await this.client.from("teams").update(payload).eq("id", existingId).select().single();
+        resData = data;
+        resError = error;
+      } else {
+        if (teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id)) {
+          payload.id = teamData.id;
+        }
+        const { data, error } = await this.client.from("teams").insert(payload).select().single();
+        resData = data;
+        resError = error;
       }
 
-      const { data, error } = await this.client.from("teams").upsert(payload, { onConflict: 'email' }).select().single();
-      if (error) {
-        console.error("❌ Supabase insertTeam error:", error);
-      } else {
-        console.log("✅ Team successfully saved in Supabase Table Editor:", data);
-        if (data && data.id) {
-          teamData.id = data.id;
+      if (resError) {
+        console.warn("Supabase direct insert/update warning, trying upsert on conflict email:", resError);
+        try {
+          const { data: upData, error: upError } = await this.client.from("teams").upsert(payload, { onConflict: 'email' }).select().single();
+          if (!upError && upData) {
+            resData = upData;
+            resError = null;
+          }
+        } catch (e2) {}
+      }
+
+      if (!resError && resData) {
+        console.log("✅ Team successfully saved in Supabase Table Editor:", resData);
+        if (resData.id) {
+          teamData.id = resData.id;
           try {
-            await this.client.from("team_progress").delete().eq("team_id", data.id);
-            await this.client.from("cheat_logs").delete().eq("team_id", data.id);
+            await this.client.from("team_progress").delete().eq("team_id", resData.id);
+            await this.client.from("cheat_logs").delete().eq("team_id", resData.id);
           } catch (cleanErr) {}
         }
       }
-      return { data, error };
+      return { data: resData, error: resError };
     } catch (e) {
       console.warn("Supabase insertTeam exception:", e);
+      return null;
     }
   }
 

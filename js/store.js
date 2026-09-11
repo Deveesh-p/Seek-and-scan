@@ -377,20 +377,8 @@ class GameStore {
       throw new Error("Please enter a valid Google email (@gmail.com) or Kongu College email (@kongu.edu)!");
     }
 
-    // Check if name or email exists in active teams (allow re-registering if previously removed)
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim().toLowerCase();
-    const exists = this.teams.find(t => (t.email && t.email.toLowerCase() === cleanEmail) || (t.name && t.name.toLowerCase() === cleanName));
-    if (exists) {
-      const isDel = exists.role === 'deleted' || exists.is_deleted || (this.deletedTeams || []).some(d =>
-        (d.id && d.id === exists.id) ||
-        (d.email && exists.email && d.email.toLowerCase() === exists.email.toLowerCase()) ||
-        (d.name && exists.name && d.name.toLowerCase() === exists.name.toLowerCase())
-      );
-      if (!isDel && exists.role !== 'admin') {
-        throw new Error("A team with this name or email already exists! Please choose a different name or email.");
-      }
-    }
 
     // If team name or email was in deletedTeams, un-delete it so it registers fresh
     if (this.deletedTeams && Array.isArray(this.deletedTeams)) {
@@ -506,14 +494,6 @@ class GameStore {
       this.isAdmin = true;
       this.save();
       return { team: this.currentTeam, isAdmin: true };
-    }
-
-    // Reject deleted teams
-    const isDeletedTeam = (this.deletedTeams || []).some(d => 
-      (d.email && d.email.toLowerCase() === cleanEmail)
-    );
-    if (isDeletedTeam) {
-      throw new Error("This team has been removed from the tournament by the administrator.");
     }
 
     // Normal team login
