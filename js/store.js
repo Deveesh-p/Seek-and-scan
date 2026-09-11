@@ -1227,15 +1227,6 @@ class GameStore {
     if (window.supabaseClient && (typeof window.supabaseClient.isConfigured === 'function' ? window.supabaseClient.isConfigured() : true)) {
       const liveTeams = await window.supabaseClient.fetchLiveTeams();
       if (liveTeams && Array.isArray(liveTeams)) {
-        // Load latest deleted teams from storage
-        try {
-          const storedDeleted = localStorage.getItem('seek_scan_deleted_teams');
-          if (storedDeleted) {
-            this.deletedTeams = JSON.parse(storedDeleted);
-          }
-        } catch (e) {}
-        if (!this.deletedTeams) this.deletedTeams = [];
-
         const deletedRemote = [];
         const activeRemote = [];
 
@@ -1249,42 +1240,16 @@ class GameStore {
           }
         });
 
-        // 1. Permanently record and purge all remote deleted teams
-        deletedRemote.forEach(remoteTeam => {
-          if (!this.deletedTeams.some(d => 
-            (d.id && d.id === remoteTeam.id) || 
-            (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
-            (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
-          )) {
-            this.deletedTeams.push({
-              id: remoteTeam.id,
-              email: remoteTeam.email,
-              name: remoteTeam.name,
-              deleted_at: new Date().toISOString()
-            });
-          }
-        });
-
-        // Persist deleted teams list
+        // 1. Supabase is the single source of truth: populate deletedTeams strictly from remote deleted teams
+        this.deletedTeams = deletedRemote.map(remoteTeam => ({
+          id: remoteTeam.id,
+          email: remoteTeam.email,
+          name: remoteTeam.name,
+          deleted_at: remoteTeam.disqualified_at || new Date().toISOString()
+        }));
         try {
-          localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams || []));
+          localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
         } catch (e) {}
-
-        // 1.5 IMPORTANT: Prune any active remote teams from local deletedTeams cache
-        // Supabase is the single source of truth: active teams in Supabase must never be blocked by local storage
-        if (this.deletedTeams && this.deletedTeams.length > 0 && activeRemote.length > 0) {
-          const activeIds = new Set(activeRemote.map(r => r.id).filter(Boolean));
-          const activeEmails = new Set(activeRemote.map(r => (r.email || '').toLowerCase()).filter(Boolean));
-          const activeNames = new Set(activeRemote.map(r => (r.name || '').toLowerCase()).filter(Boolean));
-          this.deletedTeams = this.deletedTeams.filter(d => 
-            !(d.id && activeIds.has(d.id)) &&
-            !(d.email && activeEmails.has(d.email.toLowerCase())) &&
-            !(d.name && activeNames.has(d.name.toLowerCase()))
-          );
-          try {
-            localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
-          } catch (e) {}
-        }
 
         // 2. Build quick lookup sets for active remote teams
         const activeRemoteIds = new Set(activeRemote.map(r => r.id).filter(Boolean));
