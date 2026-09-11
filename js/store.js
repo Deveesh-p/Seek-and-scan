@@ -429,6 +429,18 @@ class GameStore {
       created_at: new Date().toISOString()
     };
 
+    // Ensure newly registered team is not in local deletedTeams
+    if (this.deletedTeams && Array.isArray(this.deletedTeams)) {
+      this.deletedTeams = this.deletedTeams.filter(d => 
+        !(d.email && d.email.toLowerCase() === cleanEmail) &&
+        !(d.name && d.name.toLowerCase() === cleanName) &&
+        !(d.id && d.id === teamId)
+      );
+      try {
+        localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
+      } catch (e) {}
+    }
+
     this.teams.push(newTeam);
     // Note: Do NOT log in newTeam upon registration; they must sign in with their credentials
     this.save();
@@ -1258,18 +1270,20 @@ class GameStore {
           localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams || []));
         } catch (e) {}
 
-        // 1.5 Auto-sync local deletions to Supabase if any remotely active team was deleted locally
-        const leakedRemote = activeRemote.filter(remoteTeam => 
-          this.deletedTeams.some(d => 
-            (d.id && d.id === remoteTeam.id) || 
-            (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
-            (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
-          )
-        );
-        if (leakedRemote.length > 0 && window.supabaseClient && typeof window.supabaseClient.deleteTeam === 'function') {
-          for (const leaked of leakedRemote) {
-            window.supabaseClient.deleteTeam(leaked.id, leaked.email, leaked.name);
-          }
+        // 1.5 IMPORTANT: Prune any active remote teams from local deletedTeams cache
+        // Supabase is the single source of truth: active teams in Supabase must never be blocked by local storage
+        if (this.deletedTeams && this.deletedTeams.length > 0 && activeRemote.length > 0) {
+          const activeIds = new Set(activeRemote.map(r => r.id).filter(Boolean));
+          const activeEmails = new Set(activeRemote.map(r => (r.email || '').toLowerCase()).filter(Boolean));
+          const activeNames = new Set(activeRemote.map(r => (r.name || '').toLowerCase()).filter(Boolean));
+          this.deletedTeams = this.deletedTeams.filter(d => 
+            !(d.id && activeIds.has(d.id)) &&
+            !(d.email && activeEmails.has(d.email.toLowerCase())) &&
+            !(d.name && activeNames.has(d.name.toLowerCase()))
+          );
+          try {
+            localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
+          } catch (e) {}
         }
 
         // 2. Build quick lookup sets for active remote teams
@@ -1325,14 +1339,6 @@ class GameStore {
 
         // 4. Merge all active remote teams into this.teams with their live progress
         activeRemote.forEach(remoteTeam => {
-          // Check if marked deleted locally
-          const isLocallyDeleted = this.deletedTeams.some(d => 
-            (d.id && d.id === remoteTeam.id) || 
-            (d.email && remoteTeam.email && d.email.toLowerCase() === remoteTeam.email.toLowerCase()) ||
-            (d.name && remoteTeam.name && d.name.toLowerCase() === remoteTeam.name.toLowerCase())
-          );
-          if (isLocallyDeleted) return;
-
           const prog = Array.isArray(remoteTeam.team_progress) ? remoteTeam.team_progress[0] : remoteTeam.team_progress;
           const remoteScore = (prog && typeof prog.score === 'number') ? prog.score : 0;
           const remoteRound = (prog && typeof prog.current_round === 'number') ? prog.current_round : 1;

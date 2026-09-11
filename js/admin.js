@@ -153,7 +153,6 @@ class AdminPageController {
   updateStats() {
     const teams = window.gameStore.teams.filter(t => {
       if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
-      if (window.gameStore.deletedTeams && window.gameStore.deletedTeams.some(d => (d.id && d.id === t.id) || (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()))) return false;
       return true;
     });
     const total = teams.length;
@@ -179,7 +178,6 @@ class AdminPageController {
 
     let teams = window.gameStore.teams.filter(t => {
       if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
-      if (window.gameStore.deletedTeams && window.gameStore.deletedTeams.some(d => (d.id && d.id === t.id) || (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()))) return false;
       return true;
     });
 
@@ -488,14 +486,6 @@ class AdminPageController {
     // Secondary strict safety filter: ensure NO deleted team EVER appears
     allLeaderboardTeams = allLeaderboardTeams.filter(t => {
       if (!t || t.role === 'admin' || t.role === 'deleted' || t.is_deleted) return false;
-      if (window.gameStore.deletedTeams && Array.isArray(window.gameStore.deletedTeams) && window.gameStore.deletedTeams.length > 0) {
-        const isDeleted = window.gameStore.deletedTeams.some(d => 
-          (d.id && d.id === t.id) || 
-          (d.email && t.email && d.email.toLowerCase() === t.email.toLowerCase()) ||
-          (d.name && t.name && d.name.toLowerCase() === t.name.toLowerCase())
-        );
-        if (isDeleted) return false;
-      }
       return true;
     });
 
