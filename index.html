@@ -483,6 +483,10 @@
         <button onclick="window.qrScannerEngine.toggleCamera()" class="btn-cyber text-xs px-3.5 py-2">
           <i data-lucide="flip-horizontal" class="w-4 h-4"></i> Switch Camera
         </button>
+
+        <button id="scanner-restart-btn" onclick="window.qrScannerEngine.restartCamera()" class="btn-cyber text-xs px-3.5 py-2 border-amber-500/40 text-amber-400 hover:bg-amber-950/40 hidden">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Restart Camera
+        </button>
         
         <label class="btn-cyber btn-cyber-cyan text-xs px-3.5 py-2 cursor-pointer" onclick="if(window.antiCheatEngine) window.antiCheatEngine.pauseForFilePicker()">
           <i data-lucide="image" class="w-4 h-4"></i> Upload QR Picture

@@ -133,6 +133,9 @@ class SeekAndScanApp {
     if ((viewName !== 'challenge' || isFinished) && window.antiCheatEngine) {
       window.antiCheatEngine.stopProctoring();
     }
+    if ((viewName !== 'challenge' || isFinished) && window.qrScannerEngine) {
+      window.qrScannerEngine.stopCamera();
+    }
 
     // Manage is_in_match flag for active match / questions attending
     const currentTeam = window.gameStore ? window.gameStore.currentTeam : null;
@@ -783,7 +786,7 @@ class SeekAndScanApp {
 
     if (window.qrScannerEngine) {
       window.qrScannerEngine.initScanner("qr-reader", (decodedText) => {
-        this.processScannedQR(decodedText);
+        return this.processScannedQR(decodedText);
       });
       window.qrScannerEngine.startCamera();
     }
@@ -798,9 +801,38 @@ class SeekAndScanApp {
       this.showToast(`🎯 Station #${res.round.round_number} QR Verified! Unlocking 5 Questions.`, "success");
       if (window.cyberAudio) window.cyberAudio.playScanSuccess();
       this.renderChallengeView();
+      return { success: true, round: res.round };
     } else {
-      this.showToast(res.message, "error");
+      const roundData = window.gameStore ? window.gameStore.getCurrentRoundData() : null;
+      const stationNum = roundData ? roundData.round_number : 1;
+      const errorMsg = res.message || `Incorrect QR code! Please scan the QR code for Station #${stationNum}.`;
+
+      this.showToast(`⚠️ ${errorMsg}`, "error");
       if (window.cyberAudio) window.cyberAudio.playIncorrect();
+
+      // Keep camera active and live streaming (NO BLACK SCREEN).
+      // Update camera status message with clear instructions, then restore after 3s
+      const statusEl = document.getElementById("camera-status-msg");
+      if (statusEl) {
+        statusEl.innerText = `⚠️ Invalid QR: Must scan Station #${stationNum} QR`;
+        statusEl.classList.remove("text-emerald-400", "text-amber-400");
+        statusEl.classList.add("text-red-400");
+        if (this._scanStatusTimeout) clearTimeout(this._scanStatusTimeout);
+        this._scanStatusTimeout = setTimeout(() => {
+          if (statusEl && window.qrScannerEngine && window.qrScannerEngine.isScanning) {
+            statusEl.innerText = "Align QR code inside green reticle";
+            statusEl.classList.remove("text-red-400", "text-amber-400");
+            statusEl.classList.add("text-emerald-400");
+          }
+        }, 3000);
+      }
+
+      // Safety check: ensure camera is running and not black
+      if (window.qrScannerEngine && !window.qrScannerEngine.isScanning) {
+        window.qrScannerEngine.startCamera();
+      }
+
+      return { success: false, message: errorMsg };
     }
   }
 
