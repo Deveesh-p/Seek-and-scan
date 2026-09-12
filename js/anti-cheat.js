@@ -506,11 +506,15 @@ class AntiCheatEngine {
             if (window.app) {
               const isFinished = fresh.is_completed || fresh.completed || fresh.current_round > 3;
               if (isFinished) {
-                window.app.switchView('completed');
+                window.app.switchView('completed', true);
+              } else if (window.app.currentView === 'challenge') {
+                window.app.renderChallengeView();
+                this.startProctoring();
+                window.app.showToast("🎉 Team successfully reinstated! Resuming station challenge.", "success");
               } else {
-                window.app.switchView('mission');
+                window.app.switchView('mission', true);
+                window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
               }
-              window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
             }
           }
         }
@@ -581,18 +585,20 @@ class AntiCheatEngine {
       if (window.gameStore) {
         const fresh = await window.gameStore.syncTeamStatus();
         if (fresh && !fresh.is_disqualified) {
-          clearInterval(this.reinstatePoller);
-          this.reinstatePoller = null;
           this.hideLockout();
           if (window.cyberAudio) window.cyberAudio.playScanSuccess();
           if (window.app) {
             const isFinished = fresh.is_completed || fresh.completed || fresh.current_round > 3;
             if (isFinished) {
-              window.app.switchView('completed');
+              window.app.switchView('completed', true);
+            } else if (window.app.currentView === 'challenge') {
+              window.app.renderChallengeView();
+              this.startProctoring();
+              window.app.showToast("🎉 Team successfully reinstated! Resuming station challenge.", "success");
             } else {
-              window.app.switchView('mission');
+              window.app.switchView('mission', true);
+              window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
             }
-            window.app.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
           }
         }
       }
@@ -600,6 +606,10 @@ class AntiCheatEngine {
   }
 
   hideLockout() {
+    if (this.reinstatePoller) {
+      clearInterval(this.reinstatePoller);
+      this.reinstatePoller = null;
+    }
     if (this.lockoutModal) {
       this.lockoutModal.classList.add("hidden");
     }
@@ -627,8 +637,17 @@ class AntiCheatEngine {
       this.hideLockout();
       if (window.cyberAudio) window.cyberAudio.playScanSuccess();
       if (window.app) {
-        window.app.switchView('mission');
-        window.app.showToast("🎉 Team successfully reinstated! Welcome back to tournament.", "success");
+        const isFinished = team.is_completed || team.completed || team.current_round > 3;
+        if (isFinished) {
+          window.app.switchView('completed', true);
+        } else if (window.app.currentView === 'challenge') {
+          window.app.renderChallengeView();
+          this.startProctoring();
+          window.app.showToast("🎉 Team successfully reinstated! Resuming station challenge.", "success");
+        } else {
+          window.app.switchView('mission', true);
+          window.app.showToast("🎉 Team successfully reinstated! Welcome back to tournament.", "success");
+        }
       }
     } else {
       if (window.app) {

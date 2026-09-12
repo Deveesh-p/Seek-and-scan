@@ -1022,15 +1022,16 @@ class GameStore {
   async reinstateTeam(identifier) {
     if (!identifier) return false;
 
-    // Check if team is marked permanently deleted
-    const isDeleted = (this.deletedTeams || []).some(d => 
-      (d.id && d.id === identifier) ||
-      (d.name && d.name.toLowerCase() === String(identifier).toLowerCase()) ||
-      (d.email && d.email.toLowerCase() === String(identifier).toLowerCase())
-    );
-    if (isDeleted) {
-      console.warn("Cannot reinstate team: team was permanently removed by admin.");
-      return false;
+    // Purge any stale entries from deletedTeams if the team is in active teams list
+    if (this.deletedTeams) {
+      this.deletedTeams = this.deletedTeams.filter(d => 
+        (d.id !== identifier) &&
+        (!d.email || d.email.toLowerCase() !== String(identifier).toLowerCase()) &&
+        (!d.name || d.name.toLowerCase() !== String(identifier).toLowerCase())
+      );
+      try {
+        localStorage.setItem('seek_scan_deleted_teams', JSON.stringify(this.deletedTeams));
+      } catch (e) {}
     }
 
     // 1. Find directly in this.teams by id, name, or email
@@ -1061,7 +1062,7 @@ class GameStore {
       team = this.teams.find(t => t.email && t.email.toLowerCase() === this.currentTeam.email.toLowerCase());
     }
 
-    // If team is still not found in this.teams, DO NOT bring it back from the dead!
+    // If team is still not found in this.teams, log warning
     if (!team) {
       console.warn("Cannot reinstate team: team does not exist in registered tournament teams.");
       return false;
@@ -1071,6 +1072,7 @@ class GameStore {
       team.is_disqualified = false;
       team.disqualification_reason = null;
       team.disqualified_at = null;
+      team._reinstated_at = Date.now();
 
       // Also update any cheat logs for this team to marked as reinstated
       if (this.cheatLogs) {
@@ -1091,6 +1093,7 @@ class GameStore {
         this.currentTeam.is_disqualified = false;
         this.currentTeam.disqualification_reason = null;
         this.currentTeam.disqualified_at = null;
+        this.currentTeam._reinstated_at = Date.now();
       }
 
       // Explicitly update seek_scan_session in localStorage if it stores this team
@@ -1102,6 +1105,7 @@ class GameStore {
             sess.team.is_disqualified = false;
             sess.team.disqualification_reason = null;
             sess.team.disqualified_at = null;
+            sess.team._reinstated_at = Date.now();
             localStorage.setItem('seek_scan_session', JSON.stringify(sess));
           }
         }
@@ -1144,6 +1148,12 @@ class GameStore {
     const matched = this.teams.find(t => (targetId && t.id === targetId) || (this.currentTeam && t.email && this.currentTeam.email && t.email.toLowerCase() === this.currentTeam.email.toLowerCase()));
     if (matched) {
       if (this.currentTeam && (this.currentTeam.id === matched.id || (this.currentTeam.email && matched.email && this.currentTeam.email.toLowerCase() === matched.email.toLowerCase()))) {
+        if (this.currentTeam._reinstated_at && (Date.now() - this.currentTeam._reinstated_at < 30000)) {
+          matched.is_disqualified = false;
+          matched.disqualification_reason = null;
+          matched.disqualified_at = null;
+          matched._reinstated_at = this.currentTeam._reinstated_at;
+        }
         this.currentTeam = matched;
         try {
           localStorage.setItem('seek_scan_session', JSON.stringify({
@@ -1365,9 +1375,10 @@ class GameStore {
               role: remoteTeam.role || 'team',
               access_code: remoteTeam.access_code || local.access_code,
               is_approved: Boolean(remoteTeam.is_approved),
-              is_disqualified: Boolean(remoteTeam.is_disqualified),
-              disqualification_reason: remoteTeam.disqualification_reason,
-              disqualified_at: remoteTeam.disqualified_at,
+              is_disqualified: (local._reinstated_at && (Date.now() - local._reinstated_at < 30000)) ? false : Boolean(remoteTeam.is_disqualified),
+              disqualification_reason: (local._reinstated_at && (Date.now() - local._reinstated_at < 30000)) ? null : remoteTeam.disqualification_reason,
+              disqualified_at: (local._reinstated_at && (Date.now() - local._reinstated_at < 30000)) ? null : remoteTeam.disqualified_at,
+              _reinstated_at: local._reinstated_at,
               active_session_token: remoteSessionToken,
               created_at: remoteTeam.created_at || local.created_at,
               score: scoreToUse,

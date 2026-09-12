@@ -289,6 +289,21 @@ class SeekAndScanApp {
             window.antiCheatEngine.triggerLockout(freshTeam.disqualification_reason || "Fair-play violation: Disqualified by tournament rules.");
           }
           return;
+        } else if (window.antiCheatEngine && window.antiCheatEngine.lockoutModal && !window.antiCheatEngine.lockoutModal.classList.contains("hidden")) {
+          console.log("🎉 Reinstatement detected via session poller! Dismissing lockout...");
+          window.antiCheatEngine.hideLockout();
+          if (window.cyberAudio) window.cyberAudio.playScanSuccess();
+          const isFinished = freshTeam.is_completed || freshTeam.completed || freshTeam.current_round > 3;
+          if (isFinished) {
+            this.switchView('completed', true);
+          } else if (this.currentView === 'challenge') {
+            this.renderChallengeView();
+            if (window.antiCheatEngine) window.antiCheatEngine.startProctoring();
+            this.showToast("🎉 Team successfully reinstated! Resuming station challenge.", "success");
+          } else {
+            this.switchView('mission', true);
+            this.showToast("🎉 Team successfully reinstated by Admin! Welcome back.", "success");
+          }
         }
 
         const remoteToken = freshTeam.active_session_token || (freshTeam.avatar && freshTeam.avatar.includes('|sess:') ? freshTeam.avatar.split('|sess:')[1] : null);

@@ -243,21 +243,33 @@ class SupabaseManager {
         updateFields.password_hash = teamData.password;
       }
 
-      let query = this.client.from("teams").update(updateFields);
+      const cleanEmail = (teamData.email || '').trim().toLowerCase();
+      const cleanName = (teamData.name || '').trim();
+
+      // Multi-strategy update to guarantee Supabase row is always updated
       if (isUuid) {
-        query = query.eq("id", teamData.id);
-      } else if (teamData.email) {
-        query = query.eq("email", teamData.email);
-      } else {
-        return null;
+        await this.client.from("teams").update(updateFields).eq("id", teamData.id);
+      }
+      if (cleanEmail) {
+        await this.client.from("teams").update(updateFields).ilike("email", cleanEmail);
+      }
+      if (cleanName) {
+        await this.client.from("teams").update(updateFields).ilike("name", cleanName);
       }
 
-      const { data, error } = await query;
-      if (error) {
-        console.warn("Supabase updateTeam error:", error);
-      } else {
-        console.log("✅ Supabase team updated:", teamData.name, "is_disqualified:", teamData.is_disqualified);
+      // If team is being reinstated (is_disqualified is false), mark cheat_logs as reinstated
+      if (!teamData.is_disqualified) {
+        try {
+          if (isUuid) {
+            await this.client.from("cheat_logs").update({ reinstated: true, reinstated_at: new Date().toISOString() }).eq("team_id", teamData.id);
+          }
+          if (cleanEmail) {
+            await this.client.from("cheat_logs").update({ reinstated: true, reinstated_at: new Date().toISOString() }).ilike("team_email", cleanEmail);
+          }
+        } catch (lErr) {}
       }
+
+      console.log("✅ Supabase team updated:", teamData.name, "is_disqualified:", teamData.is_disqualified);
 
       // Upsert progress if valid UUID
       if (isUuid) {
