@@ -446,6 +446,7 @@ class GameStore {
       disqualification_reason: null,
       disqualified_at: null,
       active_session_token: null,  // Single device active session tracker
+      is_in_match: false,           // Active challenge / questions in progress tracker
       created_at: new Date().toISOString()
     };
 
@@ -507,11 +508,22 @@ class GameStore {
       throw new Error(`DISQUALIFIED: ${team.disqualification_reason || "Fair-play violation recorded for this team."}`);
     }
 
-    // STRICT SINGLE ACTIVE DEVICE CHECK: If active on another device, AUTO-DISQUALIFY
+    // SINGLE ACTIVE DEVICE CHECK:
+    // If match is already in progress (team actively attending questions in challenge) -> AUTO-DISQUALIFY
+    // If before match starts -> Ask user to log out other device and continue on this device
     const existingSession = team.active_session_token || (team.avatar && team.avatar.includes('|sess:') ? team.avatar.split('|sess:')[1] : null);
     if (existingSession && sessionToken && existingSession !== sessionToken && !forceLogoutOther) {
-      this.recordViolation("MULTI_DEVICE_LOGIN", "Second device attempted to sign into team account while active on another device.", team);
-      throw new Error("DISQUALIFIED: Multi-device login detected! Tournament rules strictly forbid signing in from more than one device during the test.");
+      if (team.is_in_match) {
+        this.recordViolation("MULTI_DEVICE_LOGIN_DURING_TEST", "Another device attempted to sign in while team was actively attending questions in match.", team);
+        throw new Error("DISQUALIFIED: Multi-device login detected during active match! Under tournament rules, signing in from another device while questions are in progress is strictly prohibited.");
+      } else {
+        return {
+          requiresConfirmation: true,
+          code: 'ACTIVE_ON_ANOTHER_DEVICE',
+          team: team,
+          activeSession: existingSession
+        };
+      }
     }
 
     if (!team.access_code) {

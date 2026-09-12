@@ -134,6 +134,22 @@ class SeekAndScanApp {
       window.antiCheatEngine.stopProctoring();
     }
 
+    // Manage is_in_match flag for active match / questions attending
+    const currentTeam = window.gameStore ? window.gameStore.currentTeam : null;
+    if (currentTeam && !window.gameStore.isAdmin) {
+      if (viewName === 'challenge' && !isFinished) {
+        currentTeam.is_in_match = true;
+        window.gameStore.updateTeam(currentTeam);
+        window.gameStore.save();
+        if (window.supabaseClient) window.supabaseClient.updateTeam(currentTeam);
+      } else if (currentTeam.is_in_match) {
+        currentTeam.is_in_match = false;
+        window.gameStore.updateTeam(currentTeam);
+        window.gameStore.save();
+        if (window.supabaseClient) window.supabaseClient.updateTeam(currentTeam);
+      }
+    }
+
     // View specific hooks
     if (viewName === 'activation') {
       this.renderActivationView();
@@ -276,14 +292,19 @@ class SeekAndScanApp {
         }
 
         const remoteToken = freshTeam.active_session_token || (freshTeam.avatar && freshTeam.avatar.includes('|sess:') ? freshTeam.avatar.split('|sess:')[1] : null);
-        // If an active session exists on server AND differs from this device's token -> AUTO-DISQUALIFY
+        // If an active session exists on server AND differs from this device's token
         if (remoteToken && remoteToken !== mySessionToken) {
-          console.warn("🔒 Multiple device login detected! Auto-disqualifying team...");
-          if (window.antiCheatEngine) {
-            window.antiCheatEngine.handleViolation(
-              "MULTI_DEVICE_LOGIN",
-              "Multi-device login detected! Another device signed into this team account during the tournament."
-            );
+          if (this.currentView === 'challenge' || freshTeam.is_in_match) {
+            console.warn("🔒 Multiple device login detected during active challenge! Disqualifying team...");
+            if (window.antiCheatEngine) {
+              window.antiCheatEngine.handleViolation(
+                "MULTI_DEVICE_LOGIN_DURING_TEST",
+                "Multi-device login detected: Another device logged into this team account while attending questions!"
+              );
+            }
+          } else {
+            console.log("ℹ️ Device switched before match started. Terminating session on this device cleanly.");
+            this.handleRemoteSessionTakeover();
           }
         }
       }
@@ -293,11 +314,28 @@ class SeekAndScanApp {
   handleRemoteSessionTakeover() {
     if (window.cyberAudio) window.cyberAudio.playIncorrect();
     if (window.antiCheatEngine) {
-      window.antiCheatEngine.handleViolation(
-        "MULTI_DEVICE_LOGIN",
-        "Multi-device login detected: Another device logged into this team account during tournament play."
-      );
+      window.antiCheatEngine.stopProctoring();
+      window.antiCheatEngine.hideLockout();
     }
+    if (window.qrScannerEngine) {
+      window.qrScannerEngine.stopCamera();
+    }
+
+    // Terminate local session cleanly
+    window.gameStore.currentTeam = null;
+    window.gameStore.isAdmin = false;
+    try {
+      localStorage.removeItem('seek_scan_session');
+      localStorage.removeItem('seek_scan_device_session');
+    } catch (e) {}
+
+    this.updateHeaderUI();
+    this.switchView('auth', true);
+
+    // Show Session Terminated Modal (telling player this device was logged out)
+    const modal = document.getElementById("modal-session-terminated");
+    if (modal) modal.classList.remove("hidden");
+    if (window.lucide) window.lucide.createIcons();
   }
 
   closeSessionTerminatedModal() {
@@ -333,6 +371,17 @@ class SeekAndScanApp {
       const deviceSessionToken = localStorage.getItem('seek_scan_device_session') || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
       
       const res = window.gameStore.loginTeam(email, pass, accessCode, deviceSessionToken, false);
+
+      // Check for concurrent session conflict before match starts (Hotstar / JioCinema style)
+      if (res && res.requiresConfirmation && res.code === 'ACTIVE_ON_ANOTHER_DEVICE') {
+        this.pendingLogin = { email, pass, accessCode, team: res.team };
+        const nameEl = document.getElementById("conflict-team-name");
+        if (nameEl) nameEl.innerText = res.team.name;
+        const conflictModal = document.getElementById("modal-session-conflict");
+        if (conflictModal) conflictModal.classList.remove("hidden");
+        if (window.lucide) window.lucide.createIcons();
+        return;
+      }
 
       // Hide registration success banner on successful login
       const notice = document.getElementById("login-reg-success");

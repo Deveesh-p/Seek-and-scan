@@ -35,6 +35,11 @@ class QRScannerEngine {
     const scannerEl = document.getElementById(this.elementId);
     if (!scannerEl) return;
 
+    if (window.antiCheatEngine) {
+      window.antiCheatEngine.isRequestingPermission = true;
+      window.antiCheatEngine.scannerGraceUntil = Date.now() + 10000;
+    }
+
     try {
       // Check available cameras
       try {
@@ -70,12 +75,20 @@ class QRScannerEngine {
       );
 
       this.isScanning = true;
+      if (window.antiCheatEngine) {
+        window.antiCheatEngine.isRequestingPermission = false;
+        window.antiCheatEngine.scannerGraceUntil = Date.now() + 3000;
+      }
       document.getElementById("camera-status-msg").innerText = "Align QR code inside green reticle";
       document.getElementById("camera-status-msg").classList.remove("text-red-400");
       document.getElementById("camera-status-msg").classList.add("text-emerald-400");
     } catch (err) {
       console.warn("Camera start failed, testing fallback device or showing manual input:", err);
       this.isScanning = false;
+      if (window.antiCheatEngine) {
+        window.antiCheatEngine.isRequestingPermission = false;
+        window.antiCheatEngine.scannerGraceUntil = Date.now() + 3000;
+      }
       const statusEl = document.getElementById("camera-status-msg");
       if (statusEl) {
         statusEl.innerText = "Camera unavailable or permission denied. Use file upload or test code below.";

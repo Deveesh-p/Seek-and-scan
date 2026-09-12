@@ -17,9 +17,9 @@ class AntiCheatEngine {
     this.scannerGraceUntil = 0;
     this.blurWarningCount = 0;
     this.isPausedForFilePicker = false;
+    this.isRequestingPermission = false;
     this.speechRecognizer = null;
     this.speechRecognitionActive = false;
-    this.audioContext = null;
   }
 
   init() {
@@ -103,21 +103,18 @@ class AntiCheatEngine {
 
     this.isActive = true;
     this.isPaused = false;
-    this.scannerGraceUntil = Date.now() + 1500;
+    this.scannerGraceUntil = Date.now() + 8000; // 8s initial grace buffer for hardware/permission prompts
     this.sustainedFocusLossCount = 0;
     this.showProctorStatusBadge(true);
 
     // Start background voice assistant detection (Google Assistant, "Hey Google", Gemini Live)
     this.startVoiceAssistantDetector();
 
-    // Start audio context watcher for external audio interruptions/hijacks
-    this.initAudioContextWatcher();
-
     // Active focus watcher: detects Google Assistant ("Hey Google"), Gemini Live overlay, split-screen, or screen-sharing tools
     if (this.focusWatcherTimer) clearInterval(this.focusWatcherTimer);
     this.focusWatcherTimer = setInterval(() => {
       if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
-      if (this.isPausedForFilePicker) return;
+      if (this.isPausedForFilePicker || this.isRequestingPermission) return;
       if (!this.isTabSwitchGuardEnabled()) return;
       if (Date.now() < this.scannerGraceUntil) return;
 
@@ -139,6 +136,7 @@ class AntiCheatEngine {
   stopProctoring() {
     this.isActive = false;
     this.isPaused = false;
+    this.isRequestingPermission = false;
     if (this.blurTimer) {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
@@ -149,7 +147,6 @@ class AntiCheatEngine {
     }
     this.sustainedFocusLossCount = 0;
     this.stopVoiceAssistantDetector();
-    this.stopAudioContextWatcher();
     this.showProctorStatusBadge(false);
   }
 
@@ -170,6 +167,7 @@ class AntiCheatEngine {
 
   resumeProctoring() {
     this.isPaused = false;
+    this.scannerGraceUntil = Date.now() + 3000;
     this.startVoiceAssistantDetector();
     console.log("🛡️ Anti-Cheat resumed.");
   }
@@ -191,13 +189,24 @@ class AntiCheatEngine {
       // Keywords that indicate Google Assistant / Gemini Live invocation or cheating queries
       const assistantKeywords = [
         'google', 'gemini', 'assistant', 'hey google', 'ok google',
-        'siri', 'alexa', 'answer', 'question', 'option', 'solve',
-        'what is', 'tell me', 'find the answer', 'passcode', 'code'
+        'siri', 'alexa', 'chatgpt', 'openai', 'answer', 'question',
+        'option', 'solve', 'what is', 'tell me', 'find the answer', 'passcode', 'code'
       ];
+
+      this.speechRecognizer.onstart = () => {
+        this.isRequestingPermission = false;
+        this.scannerGraceUntil = Date.now() + 3000;
+        console.log("🎙️ SpeechRecognizer active and listening.");
+      };
+
+      this.speechRecognizer.onaudiostart = () => {
+        this.isRequestingPermission = false;
+        this.scannerGraceUntil = Date.now() + 3000;
+      };
 
       this.speechRecognizer.onresult = (event) => {
         if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
-        if (this.isPausedForFilePicker) return;
+        if (this.isPausedForFilePicker || this.isRequestingPermission) return;
         if (!this.isTabSwitchGuardEnabled()) return;
         if (Date.now() < this.scannerGraceUntil) return;
 
@@ -229,6 +238,7 @@ class AntiCheatEngine {
       };
 
       this.speechRecognizer.onerror = (event) => {
+        this.isRequestingPermission = false;
         if (event.error === 'no-speech' || event.error === 'aborted') {
           return;
         }
@@ -253,63 +263,24 @@ class AntiCheatEngine {
     }
     if (this.speechRecognizer && !this.speechRecognitionActive) {
       try {
+        this.isRequestingPermission = true;
+        this.scannerGraceUntil = Date.now() + 8000;
         this.speechRecognitionActive = true;
         this.speechRecognizer.start();
         console.log("🎙️ Anti-cheat voice proctoring started.");
       } catch (e) {
-        // Might already be running
+        this.isRequestingPermission = false;
       }
     }
   }
 
   stopVoiceAssistantDetector() {
     this.speechRecognitionActive = false;
+    this.isRequestingPermission = false;
     if (this.speechRecognizer) {
       try {
         this.speechRecognizer.abort();
       } catch (e) {}
-    }
-  }
-
-  initAudioContextWatcher() {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      if (!this.audioContext || this.audioContext.state === 'closed') {
-        this.audioContext = new AudioCtx();
-      }
-      if (this.audioContext.state === 'suspended') {
-        this.audioContext.resume().catch(() => {});
-      }
-
-      this.audioContext.onstatechange = () => {
-        if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
-        if (this.isPausedForFilePicker) return;
-        if (Date.now() < this.scannerGraceUntil) return;
-
-        // On mobile Android, when Gemini Live or Google Assistant speaks aloud or hijacks audio focus,
-        // the browser AudioContext receives an interruption / audio focus loss
-        if (this.audioContext && (this.audioContext.state === 'interrupted')) {
-          console.warn("🚨 AudioContext interrupted by external voice assistant / audio stream!");
-          this.handleViolation(
-            "VOICE_ASSISTANT_AUDIO_FOCUS",
-            "Device audio focus was seized by an external voice assistant or audio stream during the challenge!"
-          );
-        }
-      };
-    } catch (e) {
-      console.warn("AudioContext watcher notice:", e);
-    }
-  }
-
-  stopAudioContextWatcher() {
-    if (this.audioContext) {
-      try {
-        if (this.audioContext.state !== 'closed') {
-          this.audioContext.close().catch(() => {});
-        }
-      } catch (e) {}
-      this.audioContext = null;
     }
   }
 
@@ -322,7 +293,7 @@ class AntiCheatEngine {
         return;
       }
       if (!this.isTabSwitchGuardEnabled()) return;
-      if (this.isPausedForFilePicker) return;
+      if (this.isPausedForFilePicker || this.isRequestingPermission) return;
       if (Date.now() < this.scannerGraceUntil) return;
 
       if (document.hidden) {
@@ -342,7 +313,7 @@ class AntiCheatEngine {
         return;
       }
       if (!this.isTabSwitchGuardEnabled()) return;
-      if (this.isPausedForFilePicker) return;
+      if (this.isPausedForFilePicker || this.isRequestingPermission) return;
       if (Date.now() < this.scannerGraceUntil) return;
 
       if (this.blurTimer) clearTimeout(this.blurTimer);
@@ -350,7 +321,7 @@ class AntiCheatEngine {
       // Require 500ms of sustained focus loss (catches Google Assistant, Gemini Live overlay, Circle-to-Search, split-screen, and app switching)
       this.blurTimer = setTimeout(() => {
         if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
-        if (this.isPausedForFilePicker) return;
+        if (this.isPausedForFilePicker || this.isRequestingPermission) return;
         if (!this.isTabSwitchGuardEnabled()) return;
         if (Date.now() < this.scannerGraceUntil) return;
 
