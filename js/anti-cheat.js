@@ -20,6 +20,7 @@ class AntiCheatEngine {
     this.isRequestingPermission = false;
     this.speechRecognizer = null;
     this.speechRecognitionActive = false;
+    this.wakeLockSentinel = null;
   }
 
   init() {
@@ -74,6 +75,31 @@ class AntiCheatEngine {
     return false;
   }
 
+  // --- Screen Wake Lock Management (Keeps candidate phone screen awake) ---
+  async requestWakeLock() {
+    try {
+      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !this.wakeLockSentinel) {
+        this.wakeLockSentinel = await navigator.wakeLock.request('screen');
+        this.wakeLockSentinel.addEventListener('release', () => {
+          this.wakeLockSentinel = null;
+          console.log("💡 Screen Wake Lock released.");
+        });
+        console.log("💡 Screen Wake Lock active (candidate screen will stay awake).");
+      }
+    } catch (err) {
+      console.log("ℹ️ Wake Lock note:", err && err.message ? err.message : err);
+    }
+  }
+
+  releaseWakeLock() {
+    if (this.wakeLockSentinel) {
+      try {
+        this.wakeLockSentinel.release();
+      } catch (e) {}
+      this.wakeLockSentinel = null;
+    }
+  }
+
   // Activate proctoring for active challenge play
   startProctoring() {
     const currentTeam = window.gameStore ? window.gameStore.currentTeam : null;
@@ -107,10 +133,14 @@ class AntiCheatEngine {
     this.sustainedFocusLossCount = 0;
     this.showProctorStatusBadge(true);
 
+    // Keep candidate phone screen awake
+    this.requestWakeLock();
+
     // Start background voice assistant detection (Google Assistant, "Hey Google", Gemini Live)
     this.startVoiceAssistantDetector();
 
     // Active focus watcher: detects Google Assistant ("Hey Google"), Gemini Live overlay, split-screen, or screen-sharing tools
+    // Note: Only flags sustained focus loss if the screen is visibly active (!document.hidden) - phone screen off / sleep is safe
     if (this.focusWatcherTimer) clearInterval(this.focusWatcherTimer);
     this.focusWatcherTimer = setInterval(() => {
       if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
@@ -118,13 +148,14 @@ class AntiCheatEngine {
       if (!this.isTabSwitchGuardEnabled()) return;
       if (Date.now() < this.scannerGraceUntil) return;
 
-      if (!document.hasFocus() || document.hidden) {
+      // Only check for on-screen overlay / assistant circle if screen is ON (not phone screen off / sleep)
+      if (!document.hidden && !document.hasFocus()) {
         this.sustainedFocusLossCount = (this.sustainedFocusLossCount || 0) + 1;
         if (this.sustainedFocusLossCount >= 2) {
           console.warn("🚨 Sustained focus loss detected: Google Assistant / Gemini Live / screen share / overlay!");
           this.handleViolation(
             "SCREEN_SHARE_LIVE_OR_OVERLAY",
-            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or background app switch detected after entering station scanner."
+            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or assistant circle touched after entering station scanner."
           );
         }
       } else {
@@ -137,6 +168,7 @@ class AntiCheatEngine {
     this.isActive = false;
     this.isPaused = false;
     this.isRequestingPermission = false;
+    this.releaseWakeLock();
     if (this.blurTimer) {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
@@ -152,6 +184,7 @@ class AntiCheatEngine {
 
   pauseProctoring(reason = "camera_or_dialog") {
     this.isPaused = true;
+    this.releaseWakeLock();
     if (this.blurTimer) {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
@@ -168,6 +201,7 @@ class AntiCheatEngine {
   resumeProctoring() {
     this.isPaused = false;
     this.scannerGraceUntil = Date.now() + 3000;
+    this.requestWakeLock();
     this.startVoiceAssistantDetector();
     console.log("🛡️ Anti-Cheat resumed.");
   }
@@ -285,28 +319,37 @@ class AntiCheatEngine {
   }
 
   attachEventListeners() {
-    // 1. Tab Switching & Backgrounding (document.hidden)
-    // Synchronously catches tab switches without getting throttled by background browser timers!
+    // 1. Phone Screen Off / Sleep / Tab Switching handling
+    // When phone screen turns off (power button, sleep, screen timeout), document.hidden becomes true.
+    // In accordance with tournament rules, phone screen turning off MUST NOT disqualify the team!
     document.addEventListener("visibilitychange", () => {
       if (!this.isActive || this.isTeamFinishedTournament()) {
         this.isActive = false;
         return;
       }
-      if (!this.isTabSwitchGuardEnabled()) return;
-      if (this.isPausedForFilePicker || this.isRequestingPermission) return;
-      if (Date.now() < this.scannerGraceUntil) return;
 
       if (document.hidden) {
-        console.warn("🚨 Tab switch or backgrounding detected during tournament play!");
-        this.handleViolation(
-          "TAB_SWITCH",
-          "Tab switch or browser minimized detected during tournament play."
-        );
+        // Phone screen turned off, phone locked, or window minimized.
+        // DO NOT DISQUALIFY! Candidates are permitted to lock screen or let screen sleep without penalty.
+        console.log("📱 Document became hidden (phone screen off or locked). Preserving team status.");
+        return;
+      } else {
+        // Screen turned back on / visible again
+        console.log("📱 Document became visible again (phone screen on).");
+        this.requestWakeLock();
+        this.sustainedFocusLossCount = 0;
+        if (this.blurTimer) {
+          clearTimeout(this.blurTimer);
+          this.blurTimer = null;
+        }
+        // Give 1.5s grace after waking screen to allow browser to refocus cleanly
+        this.scannerGraceUntil = Math.max(this.scannerGraceUntil || 0, Date.now() + 1500);
       }
     });
 
     // 2. Window Blur (Circle-to-Search, Split Screen, Google Assistant / Gemini Live overlay, Screen Sharing)
-    // Automatically disqualifies on sustained focus loss during active tournament play!
+    // Detects on-screen floating assistant circle, Gemini overlay, or split-screen while screen is ON.
+    // Does NOT disqualify if the phone screen was turned off (document.hidden === true).
     window.addEventListener("blur", () => {
       if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) {
         if (this.blurTimer) clearTimeout(this.blurTimer);
@@ -318,18 +361,25 @@ class AntiCheatEngine {
 
       if (this.blurTimer) clearTimeout(this.blurTimer);
 
-      // Require 500ms of sustained focus loss (catches Google Assistant, Gemini Live overlay, Circle-to-Search, split-screen, and app switching)
+      // Require 500ms of sustained focus loss while screen is ON
       this.blurTimer = setTimeout(() => {
         if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
         if (this.isPausedForFilePicker || this.isRequestingPermission) return;
         if (!this.isTabSwitchGuardEnabled()) return;
         if (Date.now() < this.scannerGraceUntil) return;
 
+        // If document is hidden, the phone screen was turned off or locked -> DO NOT DISQUALIFY
+        if (document.hidden) {
+          console.log("ℹ️ Window blur coincided with phone screen off / lock. Preserving team status.");
+          return;
+        }
+
+        // Screen is visibly active (not hidden), but window focus was lost to an assistant overlay or circle
         if (!document.hasFocus()) {
           console.warn("🚨 Sustained window blur detected: Google Assistant / Gemini Live / screen share / Circle-to-Search!");
           this.handleViolation(
             "SCREEN_SHARE_LIVE_OR_OVERLAY",
-            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or background app switch detected after entering station scanner."
+            "Lost screen focus! Screen sharing with live, Google Assistant / Gemini overlay, or assistant circle touched after entering station scanner."
           );
         }
       }, 500);

@@ -204,7 +204,43 @@ class AdminPageController {
     container.innerHTML = teams.map(t => {
       let statusBadge = '';
       if (t.is_disqualified) {
-        statusBadge = '<span class="badge-disqualified">DISQUALIFIED</span>';
+        const fullReason = t.disqualification_reason || 'Fair-play violation recorded';
+        let malpracticeType = 'MALPRACTICE';
+        let malpracticeDetail = fullReason;
+
+        if (fullReason.includes(':')) {
+          const colonIdx = fullReason.indexOf(':');
+          malpracticeType = fullReason.substring(0, colonIdx).trim();
+          malpracticeDetail = fullReason.substring(colonIdx + 1).trim();
+        } else {
+          malpracticeType = fullReason;
+        }
+
+        const typeLabels = {
+          'MULTI_DEVICE_LOGIN_DURING_TEST': '📱 MULTI-DEVICE LOGIN',
+          'VOICE_ASSISTANT_GEMINI_DETECTED': '🎙️ VOICE ASSISTANT / GEMINI',
+          'VOICE_ASSISTANT_DETECTED': '🎙️ VOICE DETECTED',
+          'SCREEN_SHARE_LIVE_OR_OVERLAY': '📺 SCREEN SHARE / OVERLAY / LIVE',
+          'TAB_SWITCH': '📑 TAB SWITCH',
+          'FULLSCREEN_EXIT': '🖥️ FULLSCREEN EXIT',
+          'KEYBOARD_SHORTCUT_VIOLATION': '⌨️ SHORTCUT VIOLATION',
+          'SCREENSHOT_ATTEMPT': '📸 SCREENSHOT ATTEMPT'
+        };
+        const badgeLabel = typeLabels[malpracticeType] || `⚠️ ${malpracticeType}`;
+
+        statusBadge = `
+          <div class="space-y-1 py-1">
+            <span class="badge-disqualified flex items-center gap-1 w-fit">
+              <i data-lucide="shield-alert" class="w-3 h-3"></i> DISQUALIFIED
+            </span>
+            <div class="text-[10px] font-mono font-bold text-red-400 bg-red-950/90 px-1.5 py-0.5 rounded border border-red-500/40 inline-block whitespace-nowrap">
+              ${this.escapeHtml(badgeLabel)}
+            </div>
+            <div class="text-[10px] text-gray-400 max-w-[220px] leading-tight break-words font-mono" title="${this.escapeHtml(fullReason)}">
+              ${this.escapeHtml(malpracticeDetail)}
+            </div>
+          </div>
+        `;
       } else if (t.is_approved) {
         statusBadge = '<span class="badge-neon font-bold">ACTIVE &bull; APPROVED</span>';
       } else {
@@ -554,7 +590,34 @@ class AdminPageController {
 
       let statusBadge = '';
       if (team.is_disqualified) {
-        statusBadge = '<span class="badge-disqualified">DISQUALIFIED</span>';
+        const fullReason = team.disqualification_reason || 'Fair-play violation';
+        let malpracticeType = 'MALPRACTICE';
+        if (fullReason.includes(':')) {
+          malpracticeType = fullReason.split(':')[0].trim();
+        } else {
+          malpracticeType = fullReason;
+        }
+
+        const typeLabels = {
+          'MULTI_DEVICE_LOGIN_DURING_TEST': '📱 Multi-Device Login',
+          'VOICE_ASSISTANT_GEMINI_DETECTED': '🎙️ Voice / Gemini Live',
+          'VOICE_ASSISTANT_DETECTED': '🎙️ Voice Detected',
+          'SCREEN_SHARE_LIVE_OR_OVERLAY': '📺 Screen Share / Overlay',
+          'TAB_SWITCH': '📑 Tab Switch',
+          'FULLSCREEN_EXIT': '🖥️ Fullscreen Exit',
+          'KEYBOARD_SHORTCUT_VIOLATION': '⌨️ Shortcut Violation',
+          'SCREENSHOT_ATTEMPT': '📸 Screenshot Attempt'
+        };
+        const badgeLabel = typeLabels[malpracticeType] || malpracticeType;
+
+        statusBadge = `
+          <div class="flex flex-col items-center gap-1">
+            <span class="badge-disqualified">DISQUALIFIED</span>
+            <span class="text-[9px] font-mono font-bold text-red-300 bg-red-950/90 border border-red-500/50 px-1.5 py-0.5 rounded text-center whitespace-nowrap">
+              ${this.escapeHtml(badgeLabel)}
+            </span>
+          </div>
+        `;
       } else if (isCompleted) {
         statusBadge = '<span class="badge-neon font-bold text-emerald-400 shadow-[0_0_10px_rgba(0,255,102,0.3)]">FINISHED 🏆</span>';
       } else if (team.is_approved) {
@@ -565,7 +628,18 @@ class AdminPageController {
 
       let stationProgress = '';
       if (team.is_disqualified) {
-        stationProgress = `<span class="text-xs font-mono text-gray-500">Locked at Station ${team.current_round || 1}</span>`;
+        const fullReason = team.disqualification_reason || 'Fair-play violation';
+        let malpracticeDetail = fullReason;
+        if (fullReason.includes(':')) {
+          const colonIdx = fullReason.indexOf(':');
+          malpracticeDetail = fullReason.substring(colonIdx + 1).trim();
+        }
+        stationProgress = `
+          <div class="font-cyber text-xs font-bold text-red-400">Locked: Station ${team.current_round || 1}</div>
+          <div class="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title="${this.escapeHtml(fullReason)}">
+            ${this.escapeHtml(malpracticeDetail)}
+          </div>
+        `;
       } else if (isCompleted) {
         stationProgress = `
           <div class="font-cyber text-xs font-bold text-emerald-300 flex items-center gap-1">
