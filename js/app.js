@@ -88,7 +88,10 @@ class SeekAndScanApp {
       window.location.href = "admin.html";
     } else {
       if (window.gameStore.currentTeam && window.gameStore.currentTeam.is_approved && this.logoClickCount === 1) {
-        this.switchView('mission');
+        // Prevent logo click from leaving active challenge
+        if (this.currentView !== 'challenge') {
+          this.switchView('mission');
+        }
       }
       this.logoClickTimer = setTimeout(() => {
         this.logoClickCount = 0;
@@ -97,7 +100,16 @@ class SeekAndScanApp {
   }
 
   // --- View Switcher ---
-  switchView(viewName) {
+  switchView(viewName, force = false) {
+    // Challenge Lock: Players cannot return to Mission Hub while solving questions!
+    if (this.currentView === 'challenge' && viewName === 'mission' && !force) {
+      const isFinished = window.gameStore && typeof window.gameStore.isTeamTournamentCompleted === 'function' && window.gameStore.isTeamTournamentCompleted();
+      if (!isFinished) {
+        this.showToast("⚠️ Locked in Station: You cannot return to Mission Hub while solving questions! Solve all 5 questions and enter the round unlock passcode to advance.", "warning");
+        return;
+      }
+    }
+
     this.currentView = viewName;
 
     // If switching to completed or auth, ensure the lockout modal is hidden so user can actually see the view!
@@ -148,6 +160,7 @@ class SeekAndScanApp {
     const teamBadge = document.getElementById("header-team-badge");
     const logoutBtn = document.getElementById("header-logout-btn");
     const missionLink = document.getElementById("nav-mission-link");
+    const mobileNav = document.getElementById("mobile-secondary-tab-bar");
 
     if (currentTeam && !window.gameStore.isAdmin) {
       if (currentTeam.is_approved) {
@@ -160,16 +173,25 @@ class SeekAndScanApp {
             codeEl.innerText = currentTeam.access_code ? `CODE: ${currentTeam.access_code}` : 'APPROVED';
           }
         }
-        if (missionLink) missionLink.classList.remove("hidden");
+        // In challenge view, hide Mission Hub links to lock player in test
+        if (this.currentView === 'challenge') {
+          if (missionLink) missionLink.classList.add("hidden");
+          if (mobileNav) mobileNav.classList.add("hidden");
+        } else {
+          if (missionLink) missionLink.classList.remove("hidden");
+          if (mobileNav) mobileNav.classList.remove("hidden");
+        }
       } else {
         if (teamBadge) teamBadge.classList.add("hidden");
         if (missionLink) missionLink.classList.add("hidden");
+        if (mobileNav) mobileNav.classList.add("hidden");
       }
       if (logoutBtn) logoutBtn.classList.remove("hidden");
     } else {
       if (teamBadge) teamBadge.classList.add("hidden");
       if (logoutBtn) logoutBtn.classList.add("hidden");
       if (missionLink) missionLink.classList.add("hidden");
+      if (mobileNav) mobileNav.classList.add("hidden");
     }
 
     if (window.lucide) window.lucide.createIcons();
@@ -244,11 +266,25 @@ class SeekAndScanApp {
       );
 
       if (freshTeam) {
+        // If team was marked disqualified:
+        if (freshTeam.is_disqualified) {
+          console.warn("🚨 Team was marked disqualified!");
+          if (window.antiCheatEngine) {
+            window.antiCheatEngine.triggerLockout(freshTeam.disqualification_reason || "Fair-play violation: Disqualified by tournament rules.");
+          }
+          return;
+        }
+
         const remoteToken = freshTeam.active_session_token || (freshTeam.avatar && freshTeam.avatar.includes('|sess:') ? freshTeam.avatar.split('|sess:')[1] : null);
-        // If an active session exists on server AND differs from this device's token -> WE HAVE BEEN TAKEN OVER!
+        // If an active session exists on server AND differs from this device's token -> AUTO-DISQUALIFY
         if (remoteToken && remoteToken !== mySessionToken) {
-          console.warn("🔒 Remote session takeover detected! Logging out this device...");
-          this.handleRemoteSessionTakeover();
+          console.warn("🔒 Multiple device login detected! Auto-disqualifying team...");
+          if (window.antiCheatEngine) {
+            window.antiCheatEngine.handleViolation(
+              "MULTI_DEVICE_LOGIN",
+              "Multi-device login detected! Another device signed into this team account during the tournament."
+            );
+          }
         }
       }
     }, 4000);
@@ -257,28 +293,11 @@ class SeekAndScanApp {
   handleRemoteSessionTakeover() {
     if (window.cyberAudio) window.cyberAudio.playIncorrect();
     if (window.antiCheatEngine) {
-      window.antiCheatEngine.stopProctoring();
-      window.antiCheatEngine.hideLockout();
+      window.antiCheatEngine.handleViolation(
+        "MULTI_DEVICE_LOGIN",
+        "Multi-device login detected: Another device logged into this team account during tournament play."
+      );
     }
-    if (window.qrScannerEngine) {
-      window.qrScannerEngine.stopCamera();
-    }
-
-    // Terminate local session
-    window.gameStore.currentTeam = null;
-    window.gameStore.isAdmin = false;
-    try {
-      localStorage.removeItem('seek_scan_session');
-      localStorage.removeItem('seek_scan_device_session');
-    } catch (e) {}
-
-    this.updateHeaderUI();
-    this.switchView('auth');
-
-    // Show Session Terminated Modal
-    const modal = document.getElementById("modal-session-terminated");
-    if (modal) modal.classList.remove("hidden");
-    if (window.lucide) window.lucide.createIcons();
   }
 
   closeSessionTerminatedModal() {
@@ -314,17 +333,6 @@ class SeekAndScanApp {
       const deviceSessionToken = localStorage.getItem('seek_scan_device_session') || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
       
       const res = window.gameStore.loginTeam(email, pass, accessCode, deviceSessionToken, false);
-      
-      // Check for concurrent session conflict (Hotstar / JioCinema style)
-      if (res && res.requiresConfirmation && res.code === 'ACTIVE_ON_ANOTHER_DEVICE') {
-        this.pendingLogin = { email, pass, accessCode, team: res.team };
-        const nameEl = document.getElementById("conflict-team-name");
-        if (nameEl) nameEl.innerText = res.team.name;
-        const conflictModal = document.getElementById("modal-session-conflict");
-        if (conflictModal) conflictModal.classList.remove("hidden");
-        if (window.lucide) window.lucide.createIcons();
-        return;
-      }
 
       // Hide registration success banner on successful login
       const notice = document.getElementById("login-reg-success");
@@ -338,30 +346,10 @@ class SeekAndScanApp {
         this.switchView('mission');
       }
     } catch (err) {
-      // If login failed, try syncing once more in case registered just now on another device
-      if (window.gameStore.syncLiveTeamsFromSupabase) {
-        try {
-          await window.gameStore.syncLiveTeamsFromSupabase();
-          const deviceSessionToken = localStorage.getItem('seek_scan_device_session') || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
-          const retryRes = window.gameStore.loginTeam(email, pass, accessCode, deviceSessionToken, false);
-          if (retryRes && retryRes.requiresConfirmation && retryRes.code === 'ACTIVE_ON_ANOTHER_DEVICE') {
-            this.pendingLogin = { email, pass, accessCode, team: retryRes.team };
-            const nameEl = document.getElementById("conflict-team-name");
-            if (nameEl) nameEl.innerText = retryRes.team.name;
-            const conflictModal = document.getElementById("modal-session-conflict");
-            if (conflictModal) conflictModal.classList.remove("hidden");
-            if (window.lucide) window.lucide.createIcons();
-            return;
-          }
-          if (!retryRes.team.is_approved) {
-            this.showToast(`Team authenticated. Please enter your Event Access Code to unlock tournament.`, "info");
-            this.switchView('activation');
-          } else {
-            this.showToast(`Welcome, ${retryRes.team.name}! Tournament unlocked.`, "success");
-            this.switchView('mission');
-          }
-          return;
-        } catch (retryErr) {}
+      if (err.message && err.message.includes("DISQUALIFIED")) {
+        if (window.antiCheatEngine) {
+          window.antiCheatEngine.triggerLockout(err.message);
+        }
       }
       this.showToast(err.message, "error");
     }
@@ -1093,10 +1081,10 @@ class SeekAndScanApp {
         }
         this.showToast("🏆 TOURNAMENT CONQUERED! All 3 Stations Completed.", "success");
         this.fireCelebrationConfetti();
-        this.switchView('completed');
+        this.switchView('completed', true);
       } else {
         this.showToast(`🎉 Round ${res.newRound} Unlocked! Find and scan Station #${res.newRound} QR code.`, "success");
-        this.switchView('mission');
+        this.switchView('mission', true);
       }
     } else {
       if (window.cyberAudio) window.cyberAudio.playIncorrect();

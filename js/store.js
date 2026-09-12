@@ -502,15 +502,16 @@ class GameStore {
       throw new Error("Invalid team email or password.");
     }
 
-    // SINGLE ACTIVE DEVICE SESSION CHECK (Hotstar / JioCinema style)
+    // Check if team is already disqualified
+    if (team.is_disqualified) {
+      throw new Error(`DISQUALIFIED: ${team.disqualification_reason || "Fair-play violation recorded for this team."}`);
+    }
+
+    // STRICT SINGLE ACTIVE DEVICE CHECK: If active on another device, AUTO-DISQUALIFY
     const existingSession = team.active_session_token || (team.avatar && team.avatar.includes('|sess:') ? team.avatar.split('|sess:')[1] : null);
     if (existingSession && sessionToken && existingSession !== sessionToken && !forceLogoutOther) {
-      return {
-        requiresConfirmation: true,
-        code: 'ACTIVE_ON_ANOTHER_DEVICE',
-        team: team,
-        activeSession: existingSession
-      };
+      this.recordViolation("MULTI_DEVICE_LOGIN", "Second device attempted to sign into team account while active on another device.", team);
+      throw new Error("DISQUALIFIED: Multi-device login detected! Tournament rules strictly forbid signing in from more than one device during the test.");
     }
 
     if (!team.access_code) {
@@ -972,34 +973,35 @@ class GameStore {
   }
 
   // --- Anti-Cheat Engine Integration ---
-  recordViolation(violationType, details = "") {
-    if (!this.currentTeam || this.isAdmin || this.isTeamTournamentCompleted(this.currentTeam)) {
+  recordViolation(violationType, details = "", targetTeam = null) {
+    const team = targetTeam || this.currentTeam;
+    if (!team || team.role === 'admin' || this.isTeamTournamentCompleted(team)) {
       console.log("🛡️ Violation ignored: Admin or team has already completed the tournament.");
       return null;
     }
     
     const violation = {
       id: 'cheat-' + Date.now(),
-      team_id: this.currentTeam.id,
-      team_name: this.currentTeam.name,
+      team_id: team.id,
+      team_name: team.name,
       violation_type: violationType,
-      round_number: this.currentTeam.current_round,
+      round_number: team.current_round || 1,
       details: details,
       timestamp: new Date().toISOString()
     };
 
     this.cheatLogs.unshift(violation);
 
-    this.currentTeam.is_disqualified = true;
-    this.currentTeam.disqualification_reason = `${violationType}: ${details}`;
-    this.currentTeam.disqualified_at = new Date().toISOString();
+    team.is_disqualified = true;
+    team.disqualification_reason = `${violationType}: ${details}`;
+    team.disqualified_at = new Date().toISOString();
 
-    this.updateTeam(this.currentTeam);
+    this.updateTeam(team);
     this.save();
 
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
       window.supabaseClient.insertCheatLog(violation);
-      window.supabaseClient.updateTeam(this.currentTeam);
+      window.supabaseClient.updateTeam(team);
     }
 
     return violation;

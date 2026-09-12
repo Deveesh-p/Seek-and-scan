@@ -17,6 +17,9 @@ class AntiCheatEngine {
     this.scannerGraceUntil = 0;
     this.blurWarningCount = 0;
     this.isPausedForFilePicker = false;
+    this.speechRecognizer = null;
+    this.speechRecognitionActive = false;
+    this.audioContext = null;
   }
 
   init() {
@@ -104,6 +107,12 @@ class AntiCheatEngine {
     this.sustainedFocusLossCount = 0;
     this.showProctorStatusBadge(true);
 
+    // Start background voice assistant detection (Google Assistant, "Hey Google", Gemini Live)
+    this.startVoiceAssistantDetector();
+
+    // Start audio context watcher for external audio interruptions/hijacks
+    this.initAudioContextWatcher();
+
     // Active focus watcher: detects Google Assistant ("Hey Google"), Gemini Live overlay, split-screen, or screen-sharing tools
     if (this.focusWatcherTimer) clearInterval(this.focusWatcherTimer);
     this.focusWatcherTimer = setInterval(() => {
@@ -139,6 +148,8 @@ class AntiCheatEngine {
       this.focusWatcherTimer = null;
     }
     this.sustainedFocusLossCount = 0;
+    this.stopVoiceAssistantDetector();
+    this.stopAudioContextWatcher();
     this.showProctorStatusBadge(false);
   }
 
@@ -153,12 +164,153 @@ class AntiCheatEngine {
       this.focusWatcherTimer = null;
     }
     this.sustainedFocusLossCount = 0;
+    this.stopVoiceAssistantDetector();
     console.log(`🛡️ Anti-Cheat paused: ${reason}`);
   }
 
   resumeProctoring() {
     this.isPaused = false;
+    this.startVoiceAssistantDetector();
     console.log("🛡️ Anti-Cheat resumed.");
+  }
+
+  // --- Voice Assistant & Gemini Live Speech Detector ---
+  initVoiceAssistantDetector() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.log("ℹ️ SpeechRecognition API not supported on this browser/platform.");
+      return;
+    }
+
+    try {
+      this.speechRecognizer = new SpeechRecognition();
+      this.speechRecognizer.continuous = true;
+      this.speechRecognizer.interimResults = true;
+      this.speechRecognizer.lang = 'en-US';
+
+      // Keywords that indicate Google Assistant / Gemini Live invocation or cheating queries
+      const assistantKeywords = [
+        'google', 'gemini', 'assistant', 'hey google', 'ok google',
+        'siri', 'alexa', 'answer', 'question', 'option', 'solve',
+        'what is', 'tell me', 'find the answer', 'passcode', 'code'
+      ];
+
+      this.speechRecognizer.onresult = (event) => {
+        if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
+        if (this.isPausedForFilePicker) return;
+        if (!this.isTabSwitchGuardEnabled()) return;
+        if (Date.now() < this.scannerGraceUntil) return;
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = (event.results[i][0].transcript || '').toLowerCase().trim();
+          if (!transcript) continue;
+          console.log("🎙️ Anti-cheat voice detected:", transcript);
+
+          const matched = assistantKeywords.find(kw => transcript.includes(kw));
+          if (matched) {
+            console.warn(`🚨 Voice Assistant keyword detected: "${matched}" in "${transcript}"`);
+            this.handleViolation(
+              "VOICE_ASSISTANT_GEMINI_DETECTED",
+              `Voice Assistant / Gemini Live speech detected: "${transcript}"! Using voice assistants during the challenge is strictly prohibited.`
+            );
+            this.stopVoiceAssistantDetector();
+            return;
+          } else if (transcript.length > 20) {
+            // Sustained voice speaking detected during proctored test
+            console.warn(`🚨 Sustained voice speaking detected: "${transcript}"`);
+            this.handleViolation(
+              "VOICE_ASSISTANT_DETECTED",
+              `Voice communication detected during test: "${transcript}". Speaking or using voice assistants is strictly prohibited.`
+            );
+            this.stopVoiceAssistantDetector();
+            return;
+          }
+        }
+      };
+
+      this.speechRecognizer.onerror = (event) => {
+        if (event.error === 'no-speech' || event.error === 'aborted') {
+          return;
+        }
+        console.warn("🎙️ SpeechRecognizer notice:", event.error);
+      };
+
+      this.speechRecognizer.onend = () => {
+        if (this.isActive && !this.isPaused && this.speechRecognitionActive && !this.isTeamFinishedTournament()) {
+          try {
+            this.speechRecognizer.start();
+          } catch (e) {}
+        }
+      };
+    } catch (e) {
+      console.warn("🎙️ Could not initialize SpeechRecognizer:", e);
+    }
+  }
+
+  startVoiceAssistantDetector() {
+    if (!this.speechRecognizer) {
+      this.initVoiceAssistantDetector();
+    }
+    if (this.speechRecognizer && !this.speechRecognitionActive) {
+      try {
+        this.speechRecognitionActive = true;
+        this.speechRecognizer.start();
+        console.log("🎙️ Anti-cheat voice proctoring started.");
+      } catch (e) {
+        // Might already be running
+      }
+    }
+  }
+
+  stopVoiceAssistantDetector() {
+    this.speechRecognitionActive = false;
+    if (this.speechRecognizer) {
+      try {
+        this.speechRecognizer.abort();
+      } catch (e) {}
+    }
+  }
+
+  initAudioContextWatcher() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+
+      this.audioContext.onstatechange = () => {
+        if (!this.isActive || this.isPaused || this.isTeamFinishedTournament()) return;
+        if (this.isPausedForFilePicker) return;
+        if (Date.now() < this.scannerGraceUntil) return;
+
+        // On mobile Android, when Gemini Live or Google Assistant speaks aloud or hijacks audio focus,
+        // the browser AudioContext receives an interruption / audio focus loss
+        if (this.audioContext && (this.audioContext.state === 'interrupted')) {
+          console.warn("🚨 AudioContext interrupted by external voice assistant / audio stream!");
+          this.handleViolation(
+            "VOICE_ASSISTANT_AUDIO_FOCUS",
+            "Device audio focus was seized by an external voice assistant or audio stream during the challenge!"
+          );
+        }
+      };
+    } catch (e) {
+      console.warn("AudioContext watcher notice:", e);
+    }
+  }
+
+  stopAudioContextWatcher() {
+    if (this.audioContext) {
+      try {
+        if (this.audioContext.state !== 'closed') {
+          this.audioContext.close().catch(() => {});
+        }
+      } catch (e) {}
+      this.audioContext = null;
+    }
   }
 
   attachEventListeners() {

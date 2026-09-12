@@ -111,11 +111,11 @@
   </header>
 
   <!-- Mobile Secondary Tab Bar -->
-  <div class="md:hidden bg-[#0a0f16]/95 border-b border-gray-850 px-3 py-2 flex items-center justify-around text-xs font-cyber">
-    <button onclick="window.app.switchView('mission')" class="hover:text-emerald-400 flex items-center gap-1">
+  <div id="mobile-secondary-tab-bar" class="md:hidden bg-[#0a0f16]/95 border-b border-gray-850 px-3 py-2 flex items-center justify-around text-xs font-cyber">
+    <button id="mobile-nav-mission-btn" onclick="window.app.switchView('mission')" class="hover:text-emerald-400 flex items-center gap-1">
       <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Mission Hub
     </button>
-    <button onclick="window.app.switchView('challenge')" class="hover:text-emerald-400 text-emerald-400 flex items-center gap-1 font-bold">
+    <button id="mobile-nav-challenge-btn" onclick="window.app.switchView('challenge')" class="hover:text-emerald-400 text-emerald-400 flex items-center gap-1 font-bold">
       <i data-lucide="scan" class="w-3.5 h-3.5"></i> Play / Scanner
     </button>
   </div>
@@ -440,9 +440,9 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-4 py-2 border-emerald-500/40 text-emerald-300 bg-slate-900 hover:bg-slate-800 flex items-center gap-2 font-bold shadow-sm">
-          <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Mission Hub
-        </button>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+          <i data-lucide="lock" class="w-3.5 h-3.5 text-amber-400"></i> Station In Progress
+        </span>
       </div>
     </div>
 
@@ -450,7 +450,7 @@
     <div class="p-3 rounded-lg bg-red-950/30 border border-red-500/30 flex items-center justify-between gap-3 text-xs font-mono">
       <div class="flex items-center gap-2 text-red-300">
         <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
-        <span>PROCTOR MONITOR ACTIVE: Tab switches and Circle-to-Search result in instant disqualification!</span>
+        <span>PROCTOR MONITOR ACTIVE: Tab switches, screen share, Circle-to-Search, and Voice Assistants (Gemini / Hey Google) result in instant disqualification!</span>
       </div>
     </div>
 
@@ -505,9 +505,6 @@
         <div class="flex items-center gap-2">
           <button onclick="window.app.returnToScanner()" class="btn-cyber text-xs px-3.5 py-1.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-950 flex items-center gap-1.5">
             <i data-lucide="scan-line" class="w-3.5 h-3.5"></i> Re-open QR Scanner
-          </button>
-          <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-3.5 py-1.5 border-gray-700 text-gray-300 hover:text-white flex items-center gap-1.5 font-bold">
-            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Mission Hub
           </button>
         </div>
       </div>
@@ -570,10 +567,7 @@
       </div>
 
       <!-- Bottom Navigation Controls -->
-      <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-800">
-        <button onclick="window.app.switchView('mission')" class="btn-cyber text-xs px-5 py-2.5 border-gray-700 text-gray-300 hover:text-white flex items-center gap-2 font-bold">
-          <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Mission Hub
-        </button>
+      <div class="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-gray-800">
         <button onclick="window.app.returnToScanner()" class="btn-cyber text-xs px-4 py-2.5 border-emerald-500/40 text-emerald-400 hover:bg-emerald-950 flex items-center gap-2">
           <i data-lucide="scan-line" class="w-4 h-4"></i> Re-open Camera Scanner
         </button>
