@@ -1209,13 +1209,15 @@ function handleSend(data) {
     activeTeams.forEach(t => {
       const hasCustom = t.custom_rounds && Object.keys(t.custom_rounds).length > 0;
       const marker = hasCustom ? "⚡ [Custom Qs Active]" : "";
-      html += `<option value="${t.id}" ${t.id === currentVal ? 'selected' : ''}>🎯 Team: ${this.escapeHtml(t.name)} ${marker}</option>`;
+      const isSelected = String(t.id) === String(currentVal);
+      html += `<option value="${t.id}" ${isSelected ? 'selected' : ''}>🎯 Team: ${this.escapeHtml(t.name)} ${marker}</option>`;
     });
 
     select.innerHTML = html;
+    select.value = currentVal;
 
     // Ensure state matches selection if team was deleted
-    if (currentVal !== 'ALL' && !activeTeams.some(t => t.id === currentVal)) {
+    if (currentVal !== 'ALL' && !activeTeams.some(t => String(t.id) === String(currentVal))) {
       this.activeQuestionsTeamId = 'ALL';
       select.value = 'ALL';
     }
@@ -1229,7 +1231,7 @@ function handleSend(data) {
     const revertBtn = document.getElementById("admin-revert-team-questions-btn");
 
     if (isTeamScope) {
-      const team = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId);
+      const team = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId));
       const teamName = team ? team.name : "Team";
 
       if (badge) {
@@ -1266,13 +1268,13 @@ function handleSend(data) {
     this.renderQRGenerator(this.activeRoundNum);
   }
 
-  revertCurrentTeamQuestions() {
+  async revertCurrentTeamQuestions() {
     if (this.activeQuestionsTeamId === 'ALL') return;
-    const team = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId);
+    const team = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId));
     if (!team) return;
 
     if (confirm(`Revert Round ${this.activeRoundNum} for team "${team.name}" back to the tournament master questions?`)) {
-      window.gameStore.resetTeamRoundToMaster(team.id, this.activeRoundNum);
+      await window.gameStore.resetTeamRoundToMaster(team.id, this.activeRoundNum);
       this.updateQuestionsScopeUI();
       this.populateQuestionsTeamScope();
       this.renderTeamsTable();
@@ -1373,7 +1375,7 @@ function handleSend(data) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  saveRoundConfig() {
+  async saveRoundConfig() {
     const roundNum = this.activeRoundNum;
     let title = document.getElementById("admin-round-title-input")?.value?.trim();
     if (!title) {
@@ -1387,7 +1389,7 @@ function handleSend(data) {
     const clueText = document.getElementById("admin-clue-input").value;
 
     const isTeamScope = this.activeQuestionsTeamId && this.activeQuestionsTeamId !== 'ALL';
-    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId) : null;
+    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId)) : null;
 
     if (isTeamScope && targetTeam) {
       const teamRound = window.gameStore.getTeamRoundData(targetTeam.id, roundNum, true);
@@ -1396,7 +1398,7 @@ function handleSend(data) {
       teamRound.location_name = locationName;
       teamRound.location_clue = clueText;
 
-      window.gameStore.saveTeamRoundData(targetTeam.id, roundNum, teamRound);
+      await window.gameStore.saveTeamRoundData(targetTeam.id, roundNum, teamRound);
       this.renderRoundEditor(roundNum);
       this.renderQRGenerator(roundNum);
       this.showToast(`Round ${roundNum} clues & passcode saved exclusively for ${targetTeam.name}!`, "success");
@@ -1415,7 +1417,7 @@ function handleSend(data) {
     let targetTeam = null;
 
     if (isTeamScope) {
-      targetTeam = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId);
+      targetTeam = window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId));
       if (targetTeam) {
         round = window.gameStore.getTeamRoundData(targetTeam.id, roundNum);
       }
@@ -1423,10 +1425,10 @@ function handleSend(data) {
     if (!round) {
       round = window.gameStore.rounds.find(r => r.round_number === roundNum);
     }
-    const q = round ? round.questions.find(item => item.id === questionId) : null;
+    const q = round ? round.questions.find(item => item.id == questionId || String(item.id) === String(questionId)) : null;
     if (!q) return;
 
-    this.editingQuestion = { roundNum, questionId };
+    this.editingQuestion = { roundNum, questionId: q.id, orderIndex: q.order_index };
     
     const scopeLabel = isTeamScope && targetTeam ? ` (Private for ${targetTeam.name})` : ` (Tournament Master)`;
     document.getElementById("modal-q-title").innerText = `Edit Question #${q.order_index} (Round ${roundNum})${scopeLabel}`;
@@ -1446,7 +1448,7 @@ function handleSend(data) {
   openAddModal() {
     this.editingQuestion = null;
     const isTeamScope = this.activeQuestionsTeamId && this.activeQuestionsTeamId !== 'ALL';
-    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId) : null;
+    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId)) : null;
     const scopeLabel = isTeamScope && targetTeam ? ` (Private for ${targetTeam.name})` : ` (Tournament Master)`;
 
     document.getElementById("modal-q-title").innerText = `Add Question to Round ${this.activeRoundNum}${scopeLabel}`;
@@ -1467,7 +1469,7 @@ function handleSend(data) {
     document.getElementById("question-edit-modal").classList.add("hidden");
   }
 
-  saveQuestionFromModal() {
+  async saveQuestionFromModal() {
     const text = document.getElementById("edit-q-text").value.trim();
     const opt0 = document.getElementById("edit-opt-0").value.trim();
     const opt1 = document.getElementById("edit-opt-1").value.trim();
@@ -1495,7 +1497,7 @@ function handleSend(data) {
 
     if (isTeamScope) {
       const teamId = this.activeQuestionsTeamId;
-      const team = window.gameStore.teams.find(t => t.id === teamId);
+      const team = window.gameStore.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
       if (!team) {
         alert("Selected team not found.");
         return;
@@ -1504,11 +1506,17 @@ function handleSend(data) {
       if (!teamRound.questions) teamRound.questions = [];
 
       if (this.editingQuestion) {
-        const q = teamRound.questions.find(item => item.id === this.editingQuestion.questionId);
+        const targetId = this.editingQuestion.questionId;
+        const targetOrder = this.editingQuestion.orderIndex;
+        let q = teamRound.questions.find(item => item.id == targetId || String(item.id) === String(targetId));
+        if (!q && targetOrder !== undefined) {
+          q = teamRound.questions.find(item => item.order_index == targetOrder);
+        }
         if (q) {
           Object.assign(q, payload);
+          q.hint = payload.hint;
         } else {
-          teamRound.questions.push({ id: this.editingQuestion.questionId, order_index: teamRound.questions.length + 1, ...payload });
+          teamRound.questions.push({ id: targetId, order_index: teamRound.questions.length + 1, ...payload });
         }
       } else {
         const nextId = (roundNum * 1000) + Date.now() % 900;
@@ -1519,7 +1527,7 @@ function handleSend(data) {
         });
       }
 
-      window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
+      await window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
       this.closeEditModal();
       this.renderRoundEditor(roundNum);
       this.renderQRGenerator(roundNum);
@@ -1540,9 +1548,9 @@ function handleSend(data) {
     }
   }
 
-  deleteQuestion(roundNum, questionId) {
+  async deleteQuestion(roundNum, questionId) {
     const isTeamScope = this.activeQuestionsTeamId && this.activeQuestionsTeamId !== 'ALL';
-    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId) : null;
+    const targetTeam = isTeamScope ? window.gameStore.teams.find(t => t.id === this.activeQuestionsTeamId || String(t.id) === String(this.activeQuestionsTeamId)) : null;
     const confirmMsg = isTeamScope && targetTeam
       ? `Delete this question from ${targetTeam.name}'s private station?`
       : "Are you sure you want to delete this tournament default question?";
@@ -1551,9 +1559,9 @@ function handleSend(data) {
       if (isTeamScope && targetTeam) {
         const teamRound = window.gameStore.getTeamRoundData(targetTeam.id, roundNum, true);
         if (teamRound && teamRound.questions) {
-          teamRound.questions = teamRound.questions.filter(q => q.id !== questionId);
+          teamRound.questions = teamRound.questions.filter(q => q.id != questionId && String(q.id) !== String(questionId));
           teamRound.questions.forEach((q, idx) => { q.order_index = idx + 1; });
-          window.gameStore.saveTeamRoundData(targetTeam.id, roundNum, teamRound);
+          await window.gameStore.saveTeamRoundData(targetTeam.id, roundNum, teamRound);
         }
         this.showToast(`Question deleted from ${targetTeam.name}'s station.`, "info");
       } else {
@@ -1749,11 +1757,11 @@ function handleSend(data) {
   // TEAM-SPECIFIC CUSTOM QUESTIONS & UNIQUE QR STUDIO
   // ========================================================================
   openTeamCustomStudio(teamId) {
-    const team = window.gameStore.teams.find(t => t.id === teamId);
+    const team = window.gameStore.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
     if (!team) return;
 
-    this.activeTeamStudioId = teamId;
-    this.activeQuestionsTeamId = teamId;
+    this.activeTeamStudioId = team.id;
+    this.activeQuestionsTeamId = team.id;
 
     // Pick round: default to whichever round has custom questions if any, otherwise team.current_round || 1
     if (team.custom_rounds && typeof team.custom_rounds === 'object') {
@@ -1770,7 +1778,7 @@ function handleSend(data) {
     document.getElementById("team-studio-name").innerText = team.name;
     document.getElementById("team-studio-leader").innerText = team.leader_name;
     document.getElementById("team-studio-members").innerText = team.members;
-    document.getElementById("team-studio-id").innerText = team.id.substring(0, 8);
+    document.getElementById("team-studio-id").innerText = String(team.id).substring(0, 8);
 
     const avatarMap = {
       'neon-wolf': '🐺',
@@ -1869,11 +1877,11 @@ function handleSend(data) {
                 <h4 class="text-sm font-semibold text-white">${this.escapeHtml(q.question_text)}</h4>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
-                <button onclick="window.adminPage.openTeamQuestionEditModal(${roundNum}, ${q.id})"
+                <button onclick="window.adminPage.openTeamQuestionEditModal(${roundNum}, '${q.id}', ${idx})"
                   class="text-xs bg-slate-800 hover:bg-cyan hover:text-black text-gray-300 px-2.5 py-1 rounded transition-colors flex items-center gap-1">
                   <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> Edit
                 </button>
-                <button onclick="window.adminPage.deleteTeamQuestion(${roundNum}, ${q.id})"
+                <button onclick="window.adminPage.deleteTeamQuestion(${roundNum}, '${q.id}', ${idx})"
                   class="text-xs bg-slate-800 hover:bg-red-600 hover:text-white text-gray-400 px-2 py-1 rounded transition-colors">
                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 </button>
@@ -1915,16 +1923,21 @@ function handleSend(data) {
       const qrData = teamRound.qr_code_key || `SEEK_STATION_${roundNum}_TEAM_${teamIdShort}`;
 
       if (window.QRCode) {
-        new QRCode(qrContainer, {
-          text: qrData,
-          width: 170,
-          height: 170,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
+        try {
+          const hLevel = (window.QRCode.CorrectLevel && window.QRCode.CorrectLevel.H !== undefined) ? window.QRCode.CorrectLevel.H : 1;
+          new QRCode(qrContainer, {
+            text: qrData,
+            width: 170,
+            height: 170,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: hLevel
+          });
+        } catch (qrErr) {
+          qrContainer.innerHTML = `<div class="p-3 bg-white text-black font-mono text-[10px] break-all text-center">QR:<br>${this.escapeHtml(qrData)}</div>`;
+        }
       } else {
-        qrContainer.innerHTML = `<div class="p-4 bg-white text-black font-mono text-xs text-center font-bold">QR:<br>${qrData}</div>`;
+        qrContainer.innerHTML = `<div class="p-4 bg-white text-black font-mono text-xs text-center font-bold">QR:<br>${this.escapeHtml(qrData)}</div>`;
       }
 
       document.getElementById("team-studio-qr-key-text").innerText = qrData;
@@ -1936,13 +1949,13 @@ function handleSend(data) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  saveTeamStationClue() {
+  async saveTeamStationClue() {
     const teamId = this.activeTeamStudioId;
     const roundNum = this.activeTeamStudioRound;
-    const team = window.gameStore.teams.find(t => t.id === teamId);
+    const team = window.gameStore.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
     if (!team) return;
 
-    const teamRound = window.gameStore.getTeamRoundData(teamId, roundNum);
+    const teamRound = window.gameStore.getTeamRoundData(teamId, roundNum, true);
     if (!teamRound) return;
 
     const unlockCode = document.getElementById("team-studio-unlock-input").value.trim();
@@ -1951,7 +1964,7 @@ function handleSend(data) {
     teamRound.unlock_code = unlockCode;
     teamRound.location_clue = clueText;
 
-    window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
+    await window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
     this.renderTeamStudio();
     this.renderTeamsTable();
     this.showToast(`Saved Round ${roundNum} clues for team ${team.name}!`, "success");
@@ -1959,7 +1972,7 @@ function handleSend(data) {
 
   openAddTeamQuestionModal() {
     this.editingTeamQuestion = null;
-    const team = window.gameStore.teams.find(t => t.id === this.activeTeamStudioId);
+    const team = window.gameStore.teams.find(t => t.id === this.activeTeamStudioId || String(t.id) === String(this.activeTeamStudioId));
     const teamName = team ? team.name : "Team";
     document.getElementById("team-modal-q-title").innerText = `Add Custom Question (Round ${this.activeTeamStudioRound} for ${teamName})`;
     document.getElementById("team-edit-q-text").value = "";
@@ -1975,14 +1988,17 @@ function handleSend(data) {
     document.getElementById("modal-team-q-edit").classList.remove("hidden");
   }
 
-  openTeamQuestionEditModal(roundNum, questionId) {
+  openTeamQuestionEditModal(roundNum, questionId, idx) {
     const teamRound = window.gameStore.getTeamRoundData(this.activeTeamStudioId, roundNum);
     if (!teamRound) return;
 
-    const q = teamRound.questions.find(item => item.id === questionId);
+    let q = teamRound.questions.find(item => item.id == questionId || String(item.id) === String(questionId));
+    if (!q && idx !== undefined && teamRound.questions[idx]) {
+      q = teamRound.questions[idx];
+    }
     if (!q) return;
 
-    this.editingTeamQuestion = { roundNum, questionId };
+    this.editingTeamQuestion = { roundNum, questionId: q.id, orderIndex: q.order_index, index: idx };
     document.getElementById("team-modal-q-title").innerText = `Edit Question #${q.order_index} (Round ${roundNum})`;
     document.getElementById("team-edit-q-text").value = q.question_text || "";
     document.getElementById("team-edit-opt-0").value = q.options[0] || "";
@@ -2002,7 +2018,7 @@ function handleSend(data) {
     this.editingTeamQuestion = null;
   }
 
-  saveTeamQuestionFromModal() {
+  async saveTeamQuestionFromModal() {
     const teamId = this.activeTeamStudioId;
     const roundNum = this.activeTeamStudioRound;
     const teamRound = window.gameStore.getTeamRoundData(teamId, roundNum, true);
@@ -2031,10 +2047,27 @@ function handleSend(data) {
     };
 
     if (this.editingTeamQuestion) {
-      const q = teamRound.questions.find(item => item.id === this.editingTeamQuestion.questionId);
+      const targetId = this.editingTeamQuestion.questionId;
+      const targetOrder = this.editingTeamQuestion.orderIndex;
+      const targetIdx = this.editingTeamQuestion.index;
+
+      let q = teamRound.questions.find(item => item.id == targetId || String(item.id) === String(targetId));
+      if (!q && targetOrder !== undefined) {
+        q = teamRound.questions.find(item => item.order_index == targetOrder);
+      }
+      if (!q && targetIdx !== undefined && teamRound.questions[targetIdx]) {
+        q = teamRound.questions[targetIdx];
+      }
+
       if (q) {
         Object.assign(q, payload);
         q.hint = payload.hint;
+      } else {
+        teamRound.questions.push({
+          id: targetId || ((roundNum * 1000) + Date.now() % 900),
+          order_index: teamRound.questions.length + 1,
+          ...payload
+        });
       }
     } else {
       const nextId = (roundNum * 1000) + Date.now() % 900;
@@ -2045,7 +2078,7 @@ function handleSend(data) {
       });
     }
 
-    window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
+    await window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
     this.closeTeamQuestionEditModal();
     this.renderTeamStudio();
     this.renderTeamStudioRoundTabs();
@@ -2055,16 +2088,20 @@ function handleSend(data) {
     this.showToast("Team question and hint updated successfully!", "success");
   }
 
-  deleteTeamQuestion(roundNum, questionId) {
+  async deleteTeamQuestion(roundNum, questionId, idx) {
     if (confirm("Delete this question from this team's station?")) {
       const teamId = this.activeTeamStudioId;
       const teamRound = window.gameStore.getTeamRoundData(teamId, roundNum, true);
       if (!teamRound) return;
 
-      teamRound.questions = teamRound.questions.filter(q => q.id !== questionId);
-      teamRound.questions.forEach((q, idx) => { q.order_index = idx + 1; });
+      teamRound.questions = teamRound.questions.filter((q, i) => {
+        if (q.id == questionId || String(q.id) === String(questionId)) return false;
+        if (idx !== undefined && i === idx) return false;
+        return true;
+      });
+      teamRound.questions.forEach((q, i) => { q.order_index = i + 1; });
 
-      window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
+      await window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
       this.renderTeamStudio();
       this.renderTeamStudioRoundTabs();
       this.renderTeamsTable();
@@ -2074,9 +2111,9 @@ function handleSend(data) {
     }
   }
 
-  resetTeamToMasterQuestions() {
+  async resetTeamToMasterQuestions() {
     if (confirm(`Revert Round ${this.activeTeamStudioRound} for this team back to the tournament master questions?`)) {
-      window.gameStore.resetTeamRoundToMaster(this.activeTeamStudioId, this.activeTeamStudioRound);
+      await window.gameStore.resetTeamRoundToMaster(this.activeTeamStudioId, this.activeTeamStudioRound);
       this.renderTeamStudioRoundTabs();
       this.renderTeamStudio();
       this.renderTeamsTable();

@@ -796,20 +796,37 @@ class GameStore {
 
     const normalizedScan = (scannedText || "").trim();
     const expectedKey = roundData.qr_code_key;
-    const teamSpecificKey = `SEEK_STATION_${roundData.round_number}_TEAM_${(this.currentTeam.id || '').substring(0, 8)}`;
+    const currentTeamIdPrefix = (this.currentTeam.id || '').substring(0, 8);
+    const teamSpecificKey = `SEEK_STATION_${roundData.round_number}_TEAM_${currentTeamIdPrefix}`;
     const primaryKey = `SEEK_STATION_${roundData.round_number}_PRIMARY`;
     const genericStationKey = `SEEK_STATION_${roundData.round_number}`;
 
+    // If QR contains a team-specific marker (_TEAM_), strictly enforce that it belongs to THIS team
+    if (normalizedScan.includes('_TEAM_')) {
+      const isMyTeamQR = normalizedScan.includes(teamSpecificKey) || 
+                         (expectedKey && normalizedScan.includes(expectedKey)) ||
+                         normalizedScan === teamSpecificKey ||
+                         normalizedScan === expectedKey;
+      if (!isMyTeamQR) {
+        return {
+          success: false,
+          message: `Station Rejection: This station QR code is exclusively reserved for another team! Please locate your team's assigned station.`
+        };
+      }
+      this.currentTeam.station_unlocked = true;
+      this.updateTeam(this.currentTeam);
+      return { success: true, round: roundData };
+    }
+
+    // Universal / Primary Station QR codes
     const match = normalizedScan === expectedKey ||
-                  normalizedScan === teamSpecificKey ||
                   normalizedScan === primaryKey ||
                   normalizedScan === genericStationKey ||
                   normalizedScan.includes(expectedKey) ||
-                  normalizedScan.includes(teamSpecificKey) ||
                   normalizedScan.includes(primaryKey) ||
-                  normalizedScan.includes(genericStationKey) ||
                   normalizedScan === `ROUND_${roundData.round_number}` ||
-                  normalizedScan === `STATION_${roundData.round_number}`;
+                  normalizedScan === `STATION_${roundData.round_number}` ||
+                  (normalizedScan.includes(genericStationKey) && !normalizedScan.includes('_TEAM_'));
 
     if (match) {
       this.currentTeam.station_unlocked = true;
@@ -831,7 +848,7 @@ class GameStore {
     const roundData = this.getCurrentRoundData();
     if (!roundData || !roundData.questions) return { success: false, message: "Round questions not found." };
 
-    const question = roundData.questions.find(q => q.id === questionId);
+    const question = roundData.questions.find(q => q.id === questionId || q.id == questionId || String(q.id) === String(questionId));
     if (!question) return { success: false, message: "Question not found." };
 
     if (!this.currentTeam.question_states) {
@@ -1386,24 +1403,26 @@ class GameStore {
             const completedToUse = isCurrentActive ? (local.is_completed || remoteCompleted) : remoteCompleted;
 
             // Merge custom_rounds:
-            // 1. If remote has custom questions, start with remote
-            // 2. If local has custom questions, preserve them (especially if edited recently within 60s)
-            // 3. If local was explicitly reverted recently, respect local
+            // Priority 1: If local was explicitly reverted, respect revert
+            // Priority 2: If remote has custom questions, use remote
+            // Priority 3: If local has custom questions, preserve them and push to Supabase to self-heal
             let customRoundsToUse = {};
-            if (remoteTeam.custom_rounds && typeof remoteTeam.custom_rounds === 'object' && Object.keys(remoteTeam.custom_rounds).length > 0) {
-              customRoundsToUse = { ...remoteTeam.custom_rounds };
-            }
-            if (local.custom_rounds && typeof local.custom_rounds === 'object') {
-              const isLocalRecent = local._custom_rounds_updated_at && (Date.now() - local._custom_rounds_updated_at < 60000);
-              if (local._explicit_revert && isLocalRecent) {
-                customRoundsToUse = { ...local.custom_rounds };
-              } else if (isLocalRecent || Object.keys(customRoundsToUse).length === 0) {
-                customRoundsToUse = { ...customRoundsToUse, ...local.custom_rounds };
-              }
-            }
+            const remoteHasCustom = remoteTeam.custom_rounds && typeof remoteTeam.custom_rounds === 'object' && Object.keys(remoteTeam.custom_rounds).length > 0;
+            const localHasCustom = local.custom_rounds && typeof local.custom_rounds === 'object' && Object.keys(local.custom_rounds).length > 0;
 
-            // If local had custom rounds that were not on remote yet, heal and sync directly to Supabase cloud
-            if (local.custom_rounds && Object.keys(local.custom_rounds).length > 0 && (!remoteTeam.custom_rounds || Object.keys(remoteTeam.custom_rounds).length === 0)) {
+            if (local._explicit_revert) {
+              customRoundsToUse = local.custom_rounds || {};
+            } else if (remoteHasCustom) {
+              customRoundsToUse = { ...remoteTeam.custom_rounds };
+              if (localHasCustom) {
+                Object.keys(local.custom_rounds).forEach(rKey => {
+                  if (!customRoundsToUse[rKey]) {
+                    customRoundsToUse[rKey] = local.custom_rounds[rKey];
+                  }
+                });
+              }
+            } else if (localHasCustom) {
+              customRoundsToUse = { ...local.custom_rounds };
               if (window.supabaseClient && typeof window.supabaseClient.updateTeamCustomRounds === 'function') {
                 window.supabaseClient.updateTeamCustomRounds(local.id, local.custom_rounds, local.email, local.avatar);
               }
@@ -1584,7 +1603,7 @@ class GameStore {
 
   // --- Team-Specific Custom Questions & Unique QR Code Generator ---
   getTeamRoundData(teamId, roundNum, createIfMissing = false) {
-    const team = this.teams.find(t => t.id === teamId);
+    const team = this.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
     if (!team) return null;
 
     if (team.custom_rounds) {
@@ -1610,44 +1629,61 @@ class GameStore {
     if (createIfMissing) {
       if (!team.custom_rounds) team.custom_rounds = {};
       team.custom_rounds[roundNum] = cloned;
+      team.custom_rounds[String(roundNum)] = cloned;
       team._custom_rounds_updated_at = Date.now();
-      this.updateTeam(team);
-      if (window.supabaseClient && typeof window.supabaseClient.updateTeamCustomRounds === 'function') {
-        window.supabaseClient.updateTeamCustomRounds(team.id, team.custom_rounds, team.email, team.avatar);
-      }
+      // NOTE: Do NOT push unedited default master questions to Supabase here!
+      // This is purely an in-memory draft container ready to receive the user's edits.
     }
     return cloned;
   }
 
-  saveTeamRoundData(teamId, roundNum, updatedRoundData) {
-    const team = this.teams.find(t => t.id === teamId);
+  async saveTeamRoundData(teamId, roundNum, updatedRoundData) {
+    const team = this.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
     if (!team) return false;
 
     if (!team.custom_rounds) team.custom_rounds = {};
     team.custom_rounds[roundNum] = updatedRoundData;
+    team.custom_rounds[String(roundNum)] = updatedRoundData;
     team._custom_rounds_updated_at = Date.now();
-    this.updateTeam(team);
+    delete team._explicit_revert;
+
+    const index = this.teams.findIndex(t => t.id === team.id || String(t.id) === String(team.id));
+    if (index !== -1) {
+      this.teams[index] = { ...this.teams[index], ...team };
+    }
+    if (this.currentTeam && (this.currentTeam.id === team.id || String(this.currentTeam.id) === String(team.id))) {
+      this.currentTeam = { ...this.currentTeam, ...team };
+    }
+    this.save();
 
     // Direct cloud sync immediately to Supabase teams table
     if (window.supabaseClient && typeof window.supabaseClient.updateTeamCustomRounds === 'function') {
-      window.supabaseClient.updateTeamCustomRounds(team.id, team.custom_rounds, team.email, team.avatar);
+      await window.supabaseClient.updateTeamCustomRounds(team.id, team.custom_rounds, team.email, team.avatar);
     }
     return true;
   }
 
-  resetTeamRoundToMaster(teamId, roundNum) {
-    const team = this.teams.find(t => t.id === teamId);
+  async resetTeamRoundToMaster(teamId, roundNum) {
+    const team = this.teams.find(t => t.id === teamId || String(t.id) === String(teamId));
     if (!team || !team.custom_rounds) return false;
 
     delete team.custom_rounds[roundNum];
     delete team.custom_rounds[String(roundNum)];
     team._custom_rounds_updated_at = Date.now();
     team._explicit_revert = true;
-    this.updateTeam(team);
+
+    const index = this.teams.findIndex(t => t.id === team.id || String(t.id) === String(team.id));
+    if (index !== -1) {
+      this.teams[index] = { ...this.teams[index], ...team };
+    }
+    if (this.currentTeam && (this.currentTeam.id === team.id || String(this.currentTeam.id) === String(team.id))) {
+      this.currentTeam = { ...this.currentTeam, ...team };
+    }
+    this.save();
 
     // Direct cloud sync immediately to Supabase teams table
     if (window.supabaseClient && typeof window.supabaseClient.updateTeamCustomRounds === 'function') {
-      window.supabaseClient.updateTeamCustomRounds(team.id, team.custom_rounds, team.email, team.avatar);
+      await window.supabaseClient.updateTeamCustomRounds(team.id, team.custom_rounds, team.email, team.avatar);
     }
     return true;
   }

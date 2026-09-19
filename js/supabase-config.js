@@ -68,12 +68,14 @@ class SupabaseManager {
   decodeTeamAvatar(avatarStr) {
     if (!avatarStr) return { avatar: 'neon-wolf', sessionToken: null, customRounds: null };
     let rest = String(avatarStr);
+    let sessionToken = null;
     let customRounds = null;
 
-    const qIdx = rest.indexOf('|qdata:');
-    if (qIdx !== -1) {
-      const b64 = rest.substring(qIdx + 7);
-      rest = rest.substring(0, qIdx);
+    // Extract customRounds if present
+    const qMatch = rest.match(/\|qdata:([^|]+)/);
+    if (qMatch) {
+      const b64 = qMatch[1];
+      rest = rest.replace(qMatch[0], '');
       try {
         let json = "";
         if (typeof Buffer !== 'undefined') {
@@ -94,14 +96,14 @@ class SupabaseManager {
       }
     }
 
-    let sessionToken = null;
-    const sIdx = rest.indexOf('|sess:');
-    if (sIdx !== -1) {
-      sessionToken = rest.substring(sIdx + 6);
-      rest = rest.substring(0, sIdx);
+    // Extract sessionToken if present
+    const sMatch = rest.match(/\|sess:([^|]+)/);
+    if (sMatch) {
+      sessionToken = sMatch[1];
+      rest = rest.replace(sMatch[0], '');
     }
 
-    const avatar = rest.split('|')[0] || 'neon-wolf';
+    const avatar = rest.split('|')[0].trim() || 'neon-wolf';
     return { avatar, sessionToken, customRounds };
   }
 
@@ -387,11 +389,12 @@ class SupabaseManager {
       const cleanEmail = (teamData.email || '').trim().toLowerCase();
       const cleanName = (teamData.name || '').trim();
 
-      // Guard: Preserve existing custom_rounds and session token from Supabase if undefined/null
+      // Guard: Preserve existing custom_rounds and session token from Supabase if undefined/null or empty without explicit revert
       let roundsToSave = teamData.custom_rounds;
       let sessionTokenToSave = teamData.active_session_token;
+      const hasRounds = roundsToSave && typeof roundsToSave === 'object' && Object.keys(roundsToSave).length > 0;
 
-      if ((roundsToSave === undefined || roundsToSave === null || !sessionTokenToSave)) {
+      if ((!hasRounds && !teamData._explicit_revert) || !sessionTokenToSave) {
         try {
           let sel = this.client.from("teams").select("avatar");
           if (isUuid) sel = sel.eq("id", teamData.id);
@@ -400,7 +403,7 @@ class SupabaseManager {
           const { data: curRows } = await sel.limit(1);
           if (curRows && curRows[0] && curRows[0].avatar) {
             const dbDecoded = this.decodeTeamAvatar(curRows[0].avatar);
-            if (roundsToSave === undefined || roundsToSave === null) {
+            if (!hasRounds && !teamData._explicit_revert && dbDecoded.customRounds) {
               roundsToSave = dbDecoded.customRounds;
             }
             if (!sessionTokenToSave) {
@@ -498,10 +501,16 @@ class SupabaseManager {
         query = query.eq("id", teamId);
       } else if (cleanEmail) {
         query = query.ilike("email", cleanEmail);
+      } else {
+        return null;
       }
-      const res = await query;
-      console.log("⚡ Supabase custom questions directly synced for team:", teamId);
-      return res;
+      const { data, error } = await query;
+      if (error) {
+        console.warn("Supabase updateTeamCustomRounds error:", error);
+      } else {
+        console.log("⚡ Supabase custom questions directly synced for team:", teamId);
+      }
+      return { data, error };
     } catch (e) {
       console.warn("Supabase updateTeamCustomRounds error:", e);
       return null;
@@ -567,7 +576,7 @@ class SupabaseManager {
         if (!roundsToKeep) {
           try {
             let sel = this.client.from("teams").select("avatar");
-            if (cleanEmail) sel = sel.eq("email", cleanEmail);
+            if (cleanEmail) sel = sel.ilike("email", cleanEmail);
             else if (isUuid) sel = sel.eq("id", teamId);
             const { data: curRows } = await sel.limit(1);
             if (curRows && curRows[0] && curRows[0].avatar) {
@@ -581,7 +590,7 @@ class SupabaseManager {
         const encodedAvatar = this.encodeTeamAvatar(decoded.avatar, sessionToken, roundsToKeep);
 
         let fallbackQuery = this.client.from("teams").update({ avatar: encodedAvatar });
-        if (cleanEmail) fallbackQuery = fallbackQuery.eq("email", cleanEmail);
+        if (cleanEmail) fallbackQuery = fallbackQuery.ilike("email", cleanEmail);
         else if (isUuid) fallbackQuery = fallbackQuery.eq("id", teamId);
 
         const fbRes = await fallbackQuery;
