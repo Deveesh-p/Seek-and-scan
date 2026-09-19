@@ -34,10 +34,125 @@ class SupabaseManager {
     return Boolean(this.client && this.url && this.anonKey);
   }
 
+  // Safe Unicode Base64 encoding/decoding helpers
+  encodeTeamAvatar(baseAvatar, sessionToken, customRounds) {
+    const clean = (baseAvatar || 'neon-wolf').split('|')[0];
+    let res = clean;
+    if (sessionToken) {
+      res += `|sess:${sessionToken}`;
+    }
+    if (customRounds && typeof customRounds === 'object' && Object.keys(customRounds).length > 0) {
+      try {
+        const json = JSON.stringify(customRounds);
+        let b64 = "";
+        if (typeof Buffer !== 'undefined') {
+          b64 = Buffer.from(json, 'utf8').toString('base64');
+        } else {
+          b64 = btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+        }
+        res += `|qdata:${b64}`;
+      } catch (e) {
+        console.warn("Could not encode custom_rounds:", e);
+      }
+    }
+    return res;
+  }
+
+  decodeTeamAvatar(avatarStr) {
+    if (!avatarStr) return { avatar: 'neon-wolf', sessionToken: null, customRounds: null };
+    let rest = String(avatarStr);
+    let customRounds = null;
+
+    const qIdx = rest.indexOf('|qdata:');
+    if (qIdx !== -1) {
+      const b64 = rest.substring(qIdx + 7);
+      rest = rest.substring(0, qIdx);
+      try {
+        let json = "";
+        if (typeof Buffer !== 'undefined') {
+          json = Buffer.from(b64, 'base64').toString('utf8');
+        } else {
+          json = decodeURIComponent(atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+        }
+        customRounds = JSON.parse(json);
+      } catch (e) {
+        console.warn("Could not decode custom_rounds from avatar:", e);
+      }
+    }
+
+    let sessionToken = null;
+    const sIdx = rest.indexOf('|sess:');
+    if (sIdx !== -1) {
+      sessionToken = rest.substring(sIdx + 6);
+      rest = rest.substring(0, sIdx);
+    }
+
+    const avatar = rest.split('|')[0] || 'neon-wolf';
+    return { avatar, sessionToken, customRounds };
+  }
+
+  encodeMasterRounds(rounds) {
+    if (!rounds || !Array.isArray(rounds)) return "";
+    try {
+      const json = JSON.stringify(rounds);
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.from(json, 'utf8').toString('base64');
+      } else {
+        return btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+      }
+    } catch (e) {
+      return "";
+    }
+  }
+
+  decodeMasterRounds(b64) {
+    if (!b64) return null;
+    try {
+      let json = "";
+      if (typeof Buffer !== 'undefined') {
+        json = Buffer.from(b64, 'base64').toString('utf8');
+      } else {
+        json = decodeURIComponent(atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      }
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async updateMasterRounds(rounds) {
+    if (!this.client || !rounds) return null;
+    try {
+      const b64 = this.encodeMasterRounds(rounds);
+      if (!b64) return null;
+      const avatarPayload = `admin-shield|master_rounds:${b64}`;
+      const { data, error } = await this.client.from("teams").update({ avatar: avatarPayload }).eq("role", "admin");
+      if (!error) {
+        console.log("✅ Master tournament rounds updated in Supabase cloud!");
+      }
+      return { data, error };
+    } catch (e) {
+      console.warn("Error updating master rounds in Supabase:", e);
+      return null;
+    }
+  }
+
   // Fetch rounds and questions from live Supabase if available
   async fetchLiveRounds() {
     if (!this.client) return null;
     try {
+      // First check if admin team row has custom master rounds saved
+      try {
+        const { data: adminRow } = await this.client.from("teams").select("avatar").eq("role", "admin").limit(1);
+        if (adminRow && adminRow.length > 0 && adminRow[0].avatar && adminRow[0].avatar.includes('|master_rounds:')) {
+          const b64 = adminRow[0].avatar.split('|master_rounds:')[1];
+          const decoded = this.decodeMasterRounds(b64);
+          if (decoded && Array.isArray(decoded) && decoded.length > 0) {
+            return decoded;
+          }
+        }
+      } catch (aErr) {}
+
       const { data: roundsData, error: rErr } = await this.client
         .from("rounds")
         .select("*")
@@ -101,10 +216,21 @@ class SupabaseManager {
       if (data && Array.isArray(data)) {
         data.forEach(t => {
           if (!t) return;
-          if (!t.active_session_token && t.avatar && t.avatar.includes('|sess:')) {
-            const parts = t.avatar.split('|sess:');
-            t.avatar = parts[0];
-            t.active_session_token = parts[1] || null;
+          if (t.role === 'admin') {
+            if (t.avatar && t.avatar.includes('|master_rounds:')) {
+              const b64 = t.avatar.split('|master_rounds:')[1];
+              t.master_rounds = this.decodeMasterRounds(b64);
+            }
+            t.avatar = 'admin-shield';
+          } else {
+            const decoded = this.decodeTeamAvatar(t.avatar);
+            t.avatar = decoded.avatar;
+            if (!t.active_session_token && decoded.sessionToken) {
+              t.active_session_token = decoded.sessionToken;
+            }
+            if (decoded.customRounds && typeof decoded.customRounds === 'object') {
+              t.custom_rounds = decoded.customRounds;
+            }
           }
         });
       }
@@ -164,7 +290,7 @@ class SupabaseManager {
         }
       } catch (err) {}
 
-      const cleanAv = (teamData.avatar || 'neon-wolf').split('|')[0];
+      const cleanAv = this.encodeTeamAvatar(teamData.avatar, teamData.active_session_token, teamData.custom_rounds);
       const payload = {
         name: cleanName,
         leader_name: (teamData.leader_name || '').trim(),
@@ -236,7 +362,8 @@ class SupabaseManager {
         is_approved: Boolean(teamData.is_approved),
         is_disqualified: Boolean(teamData.is_disqualified),
         disqualification_reason: teamData.disqualification_reason || null,
-        disqualified_at: teamData.disqualified_at || null
+        disqualified_at: teamData.disqualified_at || null,
+        avatar: this.encodeTeamAvatar(teamData.avatar, teamData.active_session_token, teamData.custom_rounds)
       };
 
       if (teamData.password) {
@@ -247,14 +374,15 @@ class SupabaseManager {
       const cleanName = (teamData.name || '').trim();
 
       // Multi-strategy update to guarantee Supabase row is always updated
+      let updateRes = null;
       if (isUuid) {
-        await this.client.from("teams").update(updateFields).eq("id", teamData.id);
+        updateRes = await this.client.from("teams").update(updateFields).eq("id", teamData.id);
       }
       if (cleanEmail) {
-        await this.client.from("teams").update(updateFields).ilike("email", cleanEmail);
+        updateRes = await this.client.from("teams").update(updateFields).ilike("email", cleanEmail);
       }
       if (cleanName) {
-        await this.client.from("teams").update(updateFields).ilike("name", cleanName);
+        updateRes = await this.client.from("teams").update(updateFields).ilike("name", cleanName);
       }
 
       // If team is being reinstated (is_disqualified is false), mark cheat_logs as reinstated
@@ -287,7 +415,7 @@ class SupabaseManager {
         }, { onConflict: 'team_id' });
       }
 
-      return { data, error };
+      return { success: true, data: updateRes?.data, error: updateRes?.error || null };
     } catch (e) {
       console.warn("Supabase updateTeam error:", e);
       return null;
@@ -324,7 +452,7 @@ class SupabaseManager {
     }
   }
 
-  async updateSessionToken(teamId, sessionToken, email = null, currentAvatar = null) {
+  async updateSessionToken(teamId, sessionToken, email = null, currentAvatar = null, customRounds = null) {
     if (!this.client) return null;
     try {
       const cleanEmail = email ? email.trim().toLowerCase() : null;
@@ -348,8 +476,23 @@ class SupabaseManager {
 
       // If active_session_token column does not exist yet (PGRST204), fallback to avatar metadata encoding
       if (error.code === 'PGRST204' || String(error.message || '').includes('active_session_token')) {
-        const baseAvatar = (currentAvatar || 'neon-wolf').split('|')[0];
-        const encodedAvatar = sessionToken ? `${baseAvatar}|sess:${sessionToken}` : baseAvatar;
+        const decoded = this.decodeTeamAvatar(currentAvatar);
+        let roundsToKeep = customRounds || decoded.customRounds;
+        if (!roundsToKeep) {
+          try {
+            let sel = this.client.from("teams").select("avatar");
+            if (cleanEmail) sel = sel.eq("email", cleanEmail);
+            else if (isUuid) sel = sel.eq("id", teamId);
+            const { data: curRows } = await sel.limit(1);
+            if (curRows && curRows[0] && curRows[0].avatar) {
+              const dbDecoded = this.decodeTeamAvatar(curRows[0].avatar);
+              if (dbDecoded.customRounds) {
+                roundsToKeep = dbDecoded.customRounds;
+              }
+            }
+          } catch (fErr) {}
+        }
+        const encodedAvatar = this.encodeTeamAvatar(decoded.avatar, sessionToken, roundsToKeep);
 
         let fallbackQuery = this.client.from("teams").update({ avatar: encodedAvatar });
         if (cleanEmail) fallbackQuery = fallbackQuery.eq("email", cleanEmail);
@@ -367,8 +510,8 @@ class SupabaseManager {
     }
   }
 
-  async clearSessionToken(teamId, email = null, currentAvatar = null) {
-    return this.updateSessionToken(teamId, null, email, currentAvatar);
+  async clearSessionToken(teamId, email = null, currentAvatar = null, customRounds = null) {
+    return this.updateSessionToken(teamId, null, email, currentAvatar, customRounds);
   }
 
   async updateRound(roundData) {

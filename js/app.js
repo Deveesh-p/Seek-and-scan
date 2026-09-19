@@ -276,6 +276,15 @@ class SeekAndScanApp {
       if (pollCounter % 2 === 0 && window.gameStore.syncLiveTeamsFromSupabase) {
         try {
           await window.gameStore.syncLiveTeamsFromSupabase();
+          if (this.currentView === 'challenge' && window.gameStore.currentTeam && window.gameStore.currentTeam.station_unlocked) {
+            const currentRound = window.gameStore.getCurrentRoundData();
+            if (currentRound && currentRound.questions) {
+              const curQJson = JSON.stringify(currentRound.questions);
+              if (this._lastRenderedQuestionsJson && this._lastRenderedQuestionsJson !== curQJson) {
+                this.renderFiveQuestions(currentRound);
+              }
+            }
+          }
         } catch (e) {}
       }
 
@@ -860,6 +869,7 @@ class SeekAndScanApp {
     if (!container) return;
 
     const questions = roundData.questions || [];
+    this._lastRenderedQuestionsJson = JSON.stringify(questions);
     const team = window.gameStore ? window.gameStore.currentTeam : null;
     const qStates = (team && team.question_states) ? team.question_states : {};
 

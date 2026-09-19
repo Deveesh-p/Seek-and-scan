@@ -553,7 +553,7 @@ class GameStore {
 
     // Synchronize active session token with Supabase
     if (window.supabaseClient) {
-      window.supabaseClient.updateSessionToken(team.id, finalSessionToken, team.email, team.avatar);
+      window.supabaseClient.updateSessionToken(team.id, finalSessionToken, team.email, team.avatar, team.custom_rounds);
     }
 
     team.station_unlocked = false;
@@ -566,7 +566,7 @@ class GameStore {
   logout() {
     if (this.currentTeam && this.currentTeam.role !== 'admin') {
       if (window.supabaseClient) {
-        window.supabaseClient.clearSessionToken(this.currentTeam.id, this.currentTeam.email, this.currentTeam.avatar);
+        window.supabaseClient.clearSessionToken(this.currentTeam.id, this.currentTeam.email, this.currentTeam.avatar, this.currentTeam.custom_rounds);
       }
       this.currentTeam.active_session_token = null;
       this.updateTeam(this.currentTeam);
@@ -1332,6 +1332,12 @@ class GameStore {
           return false;
         });
 
+        // 3b. Sync remote master rounds if customized by admin
+        const adminRemote = liveTeams.find(t => t && t.role === 'admin' && t.master_rounds);
+        if (adminRemote && Array.isArray(adminRemote.master_rounds) && adminRemote.master_rounds.length > 0) {
+          this.rounds = adminRemote.master_rounds;
+        }
+
         // 4. Merge all active remote teams into this.teams with their live progress
         activeRemote.forEach(remoteTeam => {
           const prog = Array.isArray(remoteTeam.team_progress) ? remoteTeam.team_progress[0] : remoteTeam.team_progress;
@@ -1363,6 +1369,13 @@ class GameStore {
             const solvedToUse = isCurrentActive ? Math.max(local.questions_solved || 0, remoteSolved) : remoteSolved;
             const completedToUse = isCurrentActive ? (local.is_completed || remoteCompleted) : remoteCompleted;
 
+            const isLocalRecent = local._custom_rounds_updated_at && (Date.now() - local._custom_rounds_updated_at < 12000);
+            const customRoundsToUse = isLocalRecent
+              ? (local.custom_rounds || {})
+              : (remoteTeam.custom_rounds && Object.keys(remoteTeam.custom_rounds).length > 0
+                  ? remoteTeam.custom_rounds
+                  : (local.custom_rounds || {}));
+
             this.teams[localIndex] = {
               ...local,
               id: remoteTeam.id,
@@ -1385,11 +1398,13 @@ class GameStore {
               current_round: roundToUse,
               questions_solved: solvedToUse,
               elapsed_seconds: isCurrentActive ? (local.elapsed_seconds || remoteElapsed) : remoteElapsed,
-              is_completed: completedToUse
+              is_completed: completedToUse,
+              custom_rounds: customRoundsToUse
             };
 
             if (isCurrentActive && this.currentTeam) {
               this.currentTeam.active_session_token = remoteSessionToken;
+              this.currentTeam.custom_rounds = customRoundsToUse;
             }
           } else {
             this.teams.push({
@@ -1413,7 +1428,8 @@ class GameStore {
               score: remoteScore,
               elapsed_seconds: remoteElapsed,
               is_completed: remoteCompleted,
-              station_unlocked: false
+              station_unlocked: false,
+              custom_rounds: remoteTeam.custom_rounds || {}
             });
           }
         });
@@ -1467,6 +1483,9 @@ class GameStore {
     if (qIndex !== -1) {
       round.questions[qIndex] = { ...round.questions[qIndex], ...updatedData };
       this.save();
+      if (window.supabaseClient && window.supabaseClient.isConfigured()) {
+        window.supabaseClient.updateMasterRounds(this.rounds);
+      }
       return true;
     }
     return false;
@@ -1489,6 +1508,9 @@ class GameStore {
 
     round.questions.push(newQ);
     this.save();
+    if (window.supabaseClient && window.supabaseClient.isConfigured()) {
+      window.supabaseClient.updateMasterRounds(this.rounds);
+    }
     return newQ;
   }
 
@@ -1499,6 +1521,9 @@ class GameStore {
     round.questions = round.questions.filter(q => q.id !== questionId);
     round.questions.forEach((q, idx) => { q.order_index = idx + 1; });
     this.save();
+    if (window.supabaseClient && window.supabaseClient.isConfigured()) {
+      window.supabaseClient.updateMasterRounds(this.rounds);
+    }
     return true;
   }
 
@@ -1515,6 +1540,7 @@ class GameStore {
 
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
       window.supabaseClient.updateRound(round);
+      window.supabaseClient.updateMasterRounds(this.rounds);
     }
     return true;
   }
@@ -1524,15 +1550,11 @@ class GameStore {
   }
 
   // --- Team-Specific Custom Questions & Unique QR Code Generator ---
-  getTeamRoundData(teamId, roundNum) {
+  getTeamRoundData(teamId, roundNum, createIfMissing = false) {
     const team = this.teams.find(t => t.id === teamId);
     if (!team) return null;
 
-    if (!team.custom_rounds) {
-      team.custom_rounds = {};
-    }
-
-    if (team.custom_rounds[roundNum]) {
+    if (team.custom_rounds && team.custom_rounds[roundNum]) {
       return team.custom_rounds[roundNum];
     }
 
@@ -1548,11 +1570,15 @@ class GameStore {
       unlock_code: masterRound.unlock_code,
       location_clue: masterRound.location_clue,
       location_name: masterRound.location_name,
-      questions: JSON.parse(JSON.stringify(masterRound.questions))
+      questions: JSON.parse(JSON.stringify(masterRound.questions || []))
     };
 
-    team.custom_rounds[roundNum] = cloned;
-    this.updateTeam(team);
+    if (createIfMissing) {
+      if (!team.custom_rounds) team.custom_rounds = {};
+      team.custom_rounds[roundNum] = cloned;
+      team._custom_rounds_updated_at = Date.now();
+      this.updateTeam(team);
+    }
     return cloned;
   }
 
@@ -1562,6 +1588,7 @@ class GameStore {
 
     if (!team.custom_rounds) team.custom_rounds = {};
     team.custom_rounds[roundNum] = updatedRoundData;
+    team._custom_rounds_updated_at = Date.now();
     this.updateTeam(team);
     return true;
   }
@@ -1571,6 +1598,7 @@ class GameStore {
     if (!team || !team.custom_rounds) return false;
 
     delete team.custom_rounds[roundNum];
+    team._custom_rounds_updated_at = Date.now();
     this.updateTeam(team);
     return true;
   }
