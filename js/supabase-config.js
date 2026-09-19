@@ -47,8 +47,15 @@ class SupabaseManager {
         let b64 = "";
         if (typeof Buffer !== 'undefined') {
           b64 = Buffer.from(json, 'utf8').toString('base64');
+        } else if (typeof TextEncoder !== 'undefined') {
+          const bytes = new TextEncoder().encode(json);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          b64 = btoa(binary);
         } else {
-          b64 = btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+          b64 = btoa(encodeURIComponent(json).replace(/%([0-9A-Fa-f]{2})/g, (match, p1) => String.fromCharCode(parseInt(p1, 16))));
         }
         res += `|qdata:${b64}`;
       } catch (e) {
@@ -71,6 +78,13 @@ class SupabaseManager {
         let json = "";
         if (typeof Buffer !== 'undefined') {
           json = Buffer.from(b64, 'base64').toString('utf8');
+        } else if (typeof TextDecoder !== 'undefined') {
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          json = new TextDecoder().decode(bytes);
         } else {
           json = decodeURIComponent(atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
         }
@@ -97,8 +111,15 @@ class SupabaseManager {
       const json = JSON.stringify(rounds);
       if (typeof Buffer !== 'undefined') {
         return Buffer.from(json, 'utf8').toString('base64');
+      } else if (typeof TextEncoder !== 'undefined') {
+        const bytes = new TextEncoder().encode(json);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
       } else {
-        return btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+        return btoa(encodeURIComponent(json).replace(/%([0-9A-Fa-f]{2})/g, (match, p1) => String.fromCharCode(parseInt(p1, 16))));
       }
     } catch (e) {
       return "";
@@ -111,6 +132,13 @@ class SupabaseManager {
       let json = "";
       if (typeof Buffer !== 'undefined') {
         json = Buffer.from(b64, 'base64').toString('utf8');
+      } else if (typeof TextDecoder !== 'undefined') {
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        json = new TextDecoder().decode(bytes);
       } else {
         json = decodeURIComponent(atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
       }
@@ -356,6 +384,31 @@ class SupabaseManager {
     if (!this.client || !teamData) return null;
     try {
       const isUuid = teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id);
+      const cleanEmail = (teamData.email || '').trim().toLowerCase();
+      const cleanName = (teamData.name || '').trim();
+
+      // Guard: Preserve existing custom_rounds and session token from Supabase if undefined/null
+      let roundsToSave = teamData.custom_rounds;
+      let sessionTokenToSave = teamData.active_session_token;
+
+      if ((roundsToSave === undefined || roundsToSave === null || !sessionTokenToSave)) {
+        try {
+          let sel = this.client.from("teams").select("avatar");
+          if (isUuid) sel = sel.eq("id", teamData.id);
+          else if (cleanEmail) sel = sel.ilike("email", cleanEmail);
+          else if (cleanName) sel = sel.ilike("name", cleanName);
+          const { data: curRows } = await sel.limit(1);
+          if (curRows && curRows[0] && curRows[0].avatar) {
+            const dbDecoded = this.decodeTeamAvatar(curRows[0].avatar);
+            if (roundsToSave === undefined || roundsToSave === null) {
+              roundsToSave = dbDecoded.customRounds;
+            }
+            if (!sessionTokenToSave) {
+              sessionTokenToSave = dbDecoded.sessionToken;
+            }
+          }
+        } catch (fErr) {}
+      }
 
       const updateFields = {
         access_code: teamData.access_code || null,
@@ -363,25 +416,20 @@ class SupabaseManager {
         is_disqualified: Boolean(teamData.is_disqualified),
         disqualification_reason: teamData.disqualification_reason || null,
         disqualified_at: teamData.disqualified_at || null,
-        avatar: this.encodeTeamAvatar(teamData.avatar, teamData.active_session_token, teamData.custom_rounds)
+        avatar: this.encodeTeamAvatar(teamData.avatar, sessionTokenToSave, roundsToSave)
       };
 
       if (teamData.password) {
         updateFields.password_hash = teamData.password;
       }
 
-      const cleanEmail = (teamData.email || '').trim().toLowerCase();
-      const cleanName = (teamData.name || '').trim();
-
-      // Multi-strategy update to guarantee Supabase row is always updated
+      // Targeted update query to update Supabase row cleanly
       let updateRes = null;
       if (isUuid) {
         updateRes = await this.client.from("teams").update(updateFields).eq("id", teamData.id);
-      }
-      if (cleanEmail) {
+      } else if (cleanEmail) {
         updateRes = await this.client.from("teams").update(updateFields).ilike("email", cleanEmail);
-      }
-      if (cleanName) {
+      } else if (cleanName) {
         updateRes = await this.client.from("teams").update(updateFields).ilike("name", cleanName);
       }
 
@@ -390,8 +438,7 @@ class SupabaseManager {
         try {
           if (isUuid) {
             await this.client.from("cheat_logs").update({ reinstated: true, reinstated_at: new Date().toISOString() }).eq("team_id", teamData.id);
-          }
-          if (cleanEmail) {
+          } else if (cleanEmail) {
             await this.client.from("cheat_logs").update({ reinstated: true, reinstated_at: new Date().toISOString() }).ilike("team_email", cleanEmail);
           }
         } catch (lErr) {}
@@ -418,6 +465,45 @@ class SupabaseManager {
       return { success: true, data: updateRes?.data, error: updateRes?.error || null };
     } catch (e) {
       console.warn("Supabase updateTeam error:", e);
+      return null;
+    }
+  }
+
+  // Dedicated direct sync for team-specific custom questions
+  async updateTeamCustomRounds(teamId, customRounds, email = null, baseAvatar = null) {
+    if (!this.client || !teamId) return null;
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId);
+      const cleanEmail = (email || '').trim().toLowerCase();
+
+      // Retrieve current avatar from Supabase to preserve active session token
+      let sessionToken = null;
+      let avatarName = (baseAvatar || 'neon-wolf').split('|')[0];
+      try {
+        let sel = this.client.from("teams").select("avatar");
+        if (isUuid) sel = sel.eq("id", teamId);
+        else if (cleanEmail) sel = sel.ilike("email", cleanEmail);
+        const { data: rows } = await sel.limit(1);
+        if (rows && rows[0] && rows[0].avatar) {
+          const decoded = this.decodeTeamAvatar(rows[0].avatar);
+          sessionToken = decoded.sessionToken;
+          if (decoded.avatar) avatarName = decoded.avatar;
+        }
+      } catch (fErr) {}
+
+      const newAvatar = this.encodeTeamAvatar(avatarName, sessionToken, customRounds);
+
+      let query = this.client.from("teams").update({ avatar: newAvatar });
+      if (isUuid) {
+        query = query.eq("id", teamId);
+      } else if (cleanEmail) {
+        query = query.ilike("email", cleanEmail);
+      }
+      const res = await query;
+      console.log("⚡ Supabase custom questions directly synced for team:", teamId);
+      return res;
+    } catch (e) {
+      console.warn("Supabase updateTeamCustomRounds error:", e);
       return null;
     }
   }

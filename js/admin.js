@@ -1275,6 +1275,7 @@ function handleSend(data) {
       window.gameStore.resetTeamRoundToMaster(team.id, this.activeRoundNum);
       this.updateQuestionsScopeUI();
       this.populateQuestionsTeamScope();
+      this.renderTeamsTable();
       this.renderRoundEditor(this.activeRoundNum);
       this.renderQRGenerator(this.activeRoundNum);
       this.showToast(`Round ${this.activeRoundNum} for ${team.name} reverted to tournament defaults!`, "info");
@@ -1523,6 +1524,7 @@ function handleSend(data) {
       this.renderRoundEditor(roundNum);
       this.renderQRGenerator(roundNum);
       this.populateQuestionsTeamScope();
+      this.renderTeamsTable();
       this.showToast(`Private question saved for ${team.name} & synced to Supabase! Remaining teams will NOT see it.`, "success");
     } else {
       if (this.editingQuestion) {
@@ -1751,8 +1753,18 @@ function handleSend(data) {
     if (!team) return;
 
     this.activeTeamStudioId = teamId;
-    this.activeTeamStudioRound = team.current_round || 1;
     this.activeQuestionsTeamId = teamId;
+
+    // Pick round: default to whichever round has custom questions if any, otherwise team.current_round || 1
+    if (team.custom_rounds && typeof team.custom_rounds === 'object') {
+      const customNums = Object.keys(team.custom_rounds).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+      if (customNums.length > 0 && (!this.activeTeamStudioRound || !(team.custom_rounds[this.activeTeamStudioRound] || team.custom_rounds[String(this.activeTeamStudioRound)]))) {
+        this.activeTeamStudioRound = customNums[0];
+      }
+    }
+    if (!this.activeTeamStudioRound) {
+      this.activeTeamStudioRound = team.current_round || 1;
+    }
 
     // Populate team header details
     document.getElementById("team-studio-name").innerText = team.name;
@@ -1798,7 +1810,7 @@ function handleSend(data) {
     if (!team) return;
 
     container.innerHTML = [1, 2, 3].map(num => {
-      const isCustom = team.custom_rounds && team.custom_rounds[num];
+      const isCustom = team.custom_rounds && (team.custom_rounds[num] || team.custom_rounds[String(num)]);
       const masterRound = window.gameStore.rounds.find(r => r.round_number === num);
       const title = isCustom ? isCustom.title : (masterRound ? masterRound.title : `Round ${num}`);
 
@@ -1810,7 +1822,7 @@ function handleSend(data) {
               : "bg-slate-900 text-gray-400 hover:text-white border border-gray-800"
           }">
           ${this.escapeHtml(this.getRoundTabLabel(num, title))}
-          ${isCustom ? '<span class="w-2 h-2 rounded-full bg-emerald-400" title="Custom questions active for this team"></span>' : ''}
+          ${isCustom ? '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="⚡ Custom questions active for this team in Round ' + num + '"></span>' : ''}
         </button>
       `;
     }).join("");
@@ -1825,7 +1837,7 @@ function handleSend(data) {
     const teamRound = window.gameStore.getTeamRoundData(teamId, roundNum);
     if (!teamRound) return;
 
-    const isCustomized = !!(team.custom_rounds && team.custom_rounds[roundNum]);
+    const isCustomized = !!(team.custom_rounds && (team.custom_rounds[roundNum] || team.custom_rounds[String(roundNum)]));
 
     // Update Round Title & Status
     const displayTitle = this.getRoundTabLabel(roundNum, teamRound.title);
@@ -1941,6 +1953,7 @@ function handleSend(data) {
 
     window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
     this.renderTeamStudio();
+    this.renderTeamsTable();
     this.showToast(`Saved Round ${roundNum} clues for team ${team.name}!`, "success");
   }
 
@@ -2036,6 +2049,7 @@ function handleSend(data) {
     this.closeTeamQuestionEditModal();
     this.renderTeamStudio();
     this.renderTeamStudioRoundTabs();
+    this.renderTeamsTable();
     this.populateQuestionsTeamScope();
     this.renderRoundEditor(this.activeRoundNum);
     this.showToast("Team question and hint updated successfully!", "success");
@@ -2052,6 +2066,8 @@ function handleSend(data) {
 
       window.gameStore.saveTeamRoundData(teamId, roundNum, teamRound);
       this.renderTeamStudio();
+      this.renderTeamStudioRoundTabs();
+      this.renderTeamsTable();
       this.populateQuestionsTeamScope();
       this.renderRoundEditor(this.activeRoundNum);
       this.showToast("Question deleted from team station.", "info");
@@ -2063,6 +2079,7 @@ function handleSend(data) {
       window.gameStore.resetTeamRoundToMaster(this.activeTeamStudioId, this.activeTeamStudioRound);
       this.renderTeamStudioRoundTabs();
       this.renderTeamStudio();
+      this.renderTeamsTable();
       this.populateQuestionsTeamScope();
       this.renderRoundEditor(this.activeRoundNum);
       this.showToast("Round reverted to master tournament questions!", "info");

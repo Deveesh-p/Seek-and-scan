@@ -28,9 +28,13 @@ class SeekAndScanApp {
       await window.gameStore.syncTeamStatus();
     }
 
-    // If not logged in, trigger live sync from Supabase in background for instant cross-device recognition
-    if (!window.gameStore.currentTeam && window.gameStore.syncLiveTeamsFromSupabase) {
-      window.gameStore.syncLiveTeamsFromSupabase().catch(() => {});
+    // Always trigger live sync from Supabase on startup so any custom questions assigned by admin are immediately loaded
+    if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase) {
+      window.gameStore.syncLiveTeamsFromSupabase().then(() => {
+        if (this.currentView === 'challenge') {
+          this.renderChallengeView();
+        }
+      }).catch(() => {});
     }
 
     // Proactively sync live email mailer settings from Supabase Cloud
