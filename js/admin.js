@@ -73,6 +73,14 @@ class AdminPageController {
 
     this.renderAll();
 
+    // Live sync tournament rounds, questions, and hints from Supabase
+    if (window.gameStore && window.gameStore.syncLiveRoundsFromSupabase) {
+      await window.gameStore.syncLiveRoundsFromSupabase();
+      this.renderRoundTabs();
+      this.renderRoundEditor(this.activeRoundNum);
+      this.renderQRGenerator(this.activeRoundNum);
+    }
+
     // Live sync from Supabase cloud database
     if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase) {
       await window.gameStore.syncLiveTeamsFromSupabase();
@@ -103,11 +111,14 @@ class AdminPageController {
     const btn = document.querySelector("button[onclick='window.adminPage.refreshTeams()']");
     if (btn) btn.innerHTML = `<span class="animate-spin mr-1">⏳</span> Syncing...`;
 
+    if (window.gameStore && window.gameStore.syncLiveRoundsFromSupabase) {
+      await window.gameStore.syncLiveRoundsFromSupabase();
+    }
     if (window.gameStore && window.gameStore.syncLiveTeamsFromSupabase) {
       await window.gameStore.syncLiveTeamsFromSupabase();
     }
     this.renderAll();
-    this.showToast("⚡ Teams & Violation Logs synced with Supabase Database!", "info");
+    this.showToast("⚡ Teams, Stations & Questions synced with Supabase Database!", "info");
 
     if (btn) {
       btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh DB`;
@@ -1403,11 +1414,11 @@ function handleSend(data) {
       this.renderQRGenerator(roundNum);
       this.showToast(`Round ${roundNum} clues & passcode saved exclusively for ${targetTeam.name}!`, "success");
     } else {
-      window.gameStore.updateRoundMetadata(roundNum, title, clueText, unlockCode, locationName);
+      await window.gameStore.updateRoundMetadata(roundNum, title, clueText, unlockCode, locationName);
       this.renderRoundTabs();
       this.renderRoundEditor(roundNum);
       this.renderQRGenerator(roundNum);
-      this.showToast(`Tournament Round ${roundNum} updated to "${title}"!`, "success");
+      this.showToast(`Tournament Round ${roundNum} station details saved to database!`, "success");
     }
   }
 
@@ -1536,15 +1547,15 @@ function handleSend(data) {
       this.showToast(`Private question saved for ${team.name} & synced to Supabase! Remaining teams will NOT see it.`, "success");
     } else {
       if (this.editingQuestion) {
-        window.gameStore.updateQuestion(this.editingQuestion.roundNum, this.editingQuestion.questionId, payload);
+        await window.gameStore.updateQuestion(this.editingQuestion.roundNum, this.editingQuestion.questionId, payload);
       } else {
-        window.gameStore.addQuestion(this.activeRoundNum, payload);
+        await window.gameStore.addQuestion(this.activeRoundNum, payload);
       }
 
       this.closeEditModal();
       this.renderRoundEditor(this.activeRoundNum);
       this.renderQRGenerator(this.activeRoundNum);
-      this.showToast("Tournament default question saved & synced across devices!", "success");
+      this.showToast("Question and hint saved to database and synced across devices!", "success");
     }
   }
 
@@ -1565,8 +1576,8 @@ function handleSend(data) {
         }
         this.showToast(`Question deleted from ${targetTeam.name}'s station.`, "info");
       } else {
-        window.gameStore.deleteQuestion(roundNum, questionId);
-        this.showToast("Tournament default question deleted.", "info");
+        await window.gameStore.deleteQuestion(roundNum, questionId);
+        this.showToast("Tournament question deleted from database.", "info");
       }
       this.renderRoundEditor(roundNum);
       this.renderQRGenerator(roundNum);

@@ -156,9 +156,18 @@ class SupabaseManager {
       const b64 = this.encodeMasterRounds(rounds);
       if (!b64) return null;
       const avatarPayload = `admin-shield|master_rounds:${b64}`;
-      const { data, error } = await this.client.from("teams").update({ avatar: avatarPayload }).eq("role", "admin");
+      let { data, error } = await this.client.from("teams").update({ avatar: avatarPayload }).eq("role", "admin");
+      if (error || !data || data.length === 0) {
+        const fb = await this.client.from("teams").update({ avatar: avatarPayload }).ilike("email", "admin@seekandscan.com");
+        if (!fb.error) {
+          error = null;
+          data = fb.data;
+        }
+      }
       if (!error) {
-        console.log("✅ Master tournament rounds updated in Supabase cloud!");
+        console.log("✅ Master tournament stations, questions, and hints saved in Supabase cloud!");
+      } else {
+        console.warn("Supabase updateMasterRounds error:", error);
       }
       return { data, error };
     } catch (e) {
@@ -171,25 +180,44 @@ class SupabaseManager {
   async fetchLiveRounds() {
     if (!this.client) return null;
     try {
-      // First check if admin team row has custom master rounds saved
+      // 1. First check if admin team row has custom master rounds saved
       try {
-        const { data: adminRow } = await this.client.from("teams").select("avatar").eq("role", "admin").limit(1);
-        if (adminRow && adminRow.length > 0 && adminRow[0].avatar && adminRow[0].avatar.includes('|master_rounds:')) {
-          const b64 = adminRow[0].avatar.split('|master_rounds:')[1];
+        let { data: adminRows } = await this.client.from("teams").select("avatar").eq("role", "admin").limit(1);
+        if (!adminRows || adminRows.length === 0) {
+          const { data: adminByEmail } = await this.client.from("teams").select("avatar").ilike("email", "admin@seekandscan.com").limit(1);
+          adminRows = adminByEmail;
+        }
+
+        if (adminRows && adminRows.length > 0 && adminRows[0].avatar && adminRows[0].avatar.includes('|master_rounds:')) {
+          let b64 = adminRows[0].avatar.split('|master_rounds:')[1];
+          if (b64.includes('|')) b64 = b64.split('|')[0];
           const decoded = this.decodeMasterRounds(b64);
           if (decoded && Array.isArray(decoded) && decoded.length > 0) {
+            decoded.forEach(r => {
+              if (r && Array.isArray(r.questions)) {
+                r.questions.forEach(q => {
+                  if (!q.hint || !q.hint.trim()) {
+                    const defRound = (typeof DEFAULT_ROUNDS !== 'undefined' ? DEFAULT_ROUNDS : []).find(dr => dr.round_number === r.round_number);
+                    const defQ = defRound ? defRound.questions.find(dq => dq.id == q.id || dq.order_index == q.order_index) : null;
+                    q.hint = defQ && defQ.hint ? defQ.hint : "Review technical concepts and eliminate unlikely options.";
+                  }
+                });
+              }
+            });
+            console.log("☁️ Loaded live tournament master rounds & hints from Supabase admin cloud storage!");
             return decoded;
           }
         }
       } catch (aErr) {}
 
+      // 2. Fallback: Fetch from relational rounds and questions tables
       const { data: roundsData, error: rErr } = await this.client
         .from("rounds")
         .select("*")
         .order("round_number", { ascending: true });
 
       if (rErr || !roundsData || roundsData.length === 0) {
-        return null; // Tables not created yet in Supabase or empty
+        return null;
       }
 
       const { data: questionsData, error: qErr } = await this.client
@@ -197,19 +225,25 @@ class SupabaseManager {
         .select("*")
         .order("order_index", { ascending: true });
 
-      // Merge questions into rounds
+      // Merge questions into rounds with hint preservation
       const rounds = roundsData.map(r => {
         const roundQuestions = (questionsData || [])
-          .filter(q => q.round_id === r.id)
-          .map(q => ({
-            id: q.id,
-            order_index: q.order_index,
-            question_text: q.question_text,
-            options: [q.option_a, q.option_b, q.option_c, q.option_d],
-            correct_index: ['A', 'B', 'C', 'D'].indexOf((q.correct_option || 'A').toUpperCase()),
-            points: q.points || 20,
-            hint: q.hint || ""
-          }));
+          .filter(q => q.round_id === r.id || q.round_id === r.round_number)
+          .map(q => {
+            const defRound = (typeof DEFAULT_ROUNDS !== 'undefined' ? DEFAULT_ROUNDS : []).find(dr => dr.round_number === r.round_number);
+            const defQ = defRound ? defRound.questions.find(dq => dq.id == q.id || dq.order_index == q.order_index) : null;
+            const hintText = (q.hint && q.hint.trim()) ? q.hint.trim() : (defQ && defQ.hint ? defQ.hint : "Review technical concepts and eliminate unlikely options.");
+
+            return {
+              id: q.id,
+              order_index: q.order_index,
+              question_text: q.question_text,
+              options: [q.option_a, q.option_b, q.option_c, q.option_d],
+              correct_index: ['A', 'B', 'C', 'D'].indexOf((q.correct_option || 'A').toUpperCase()),
+              points: q.points || 20,
+              hint: hintText
+            };
+          });
 
         return {
           round_number: r.round_number,
@@ -388,6 +422,24 @@ class SupabaseManager {
       const isUuid = teamData.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamData.id);
       const cleanEmail = (teamData.email || '').trim().toLowerCase();
       const cleanName = (teamData.name || '').trim();
+
+      // Guard: Admin row contains master_rounds; preserve it completely
+      if (teamData.role === 'admin' || cleanEmail === 'admin@seekandscan.com') {
+        let adminAvatar = teamData.avatar || 'admin-shield';
+        if (teamData.master_rounds && !adminAvatar.includes('|master_rounds:')) {
+          const b64 = this.encodeMasterRounds(teamData.master_rounds);
+          if (b64) adminAvatar = `admin-shield|master_rounds:${b64}`;
+        } else if (!adminAvatar.includes('|master_rounds:')) {
+          try {
+            const { data: dbAdmin } = await this.client.from("teams").select("avatar").eq("role", "admin").limit(1);
+            if (dbAdmin && dbAdmin[0] && dbAdmin[0].avatar && dbAdmin[0].avatar.includes('|master_rounds:')) {
+              adminAvatar = dbAdmin[0].avatar;
+            }
+          } catch (e) {}
+        }
+        const { data, error } = await this.client.from("teams").update({ avatar: adminAvatar }).eq("role", "admin");
+        return { success: !error, data, error };
+      }
 
       // Guard: Preserve existing custom_rounds and session token from Supabase if undefined/null or empty without explicit revert
       let roundsToSave = teamData.custom_rounds;
@@ -610,7 +662,7 @@ class SupabaseManager {
   }
 
   async updateRound(roundData) {
-    if (!this.client) return null;
+    if (!this.client || !roundData) return null;
     try {
       const { data, error } = await this.client
         .from("rounds")
@@ -625,6 +677,74 @@ class SupabaseManager {
       return { data, error };
     } catch (e) {
       console.warn("Supabase updateRound error:", e);
+      return null;
+    }
+  }
+
+  async updateQuestion(roundNum, questionData) {
+    if (!this.client || !questionData) return null;
+    try {
+      const optLetter = ['A', 'B', 'C', 'D'][questionData.correct_index] || 'A';
+      const payload = {
+        question_text: questionData.question_text,
+        option_a: questionData.options ? questionData.options[0] : "",
+        option_b: questionData.options ? questionData.options[1] : "",
+        option_c: questionData.options ? questionData.options[2] : "",
+        option_d: questionData.options ? questionData.options[3] : "",
+        correct_option: optLetter,
+        points: Number(questionData.points) || 20,
+        hint: questionData.hint || ""
+      };
+
+      let query = this.client.from("questions").update(payload);
+      if (questionData.id) {
+        query = query.eq("id", questionData.id);
+      } else {
+        query = query.eq("round_id", roundNum).eq("order_index", questionData.order_index);
+      }
+      const { data, error } = await query;
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase updateQuestion error:", e);
+      return null;
+    }
+  }
+
+  async insertQuestion(roundNum, questionData) {
+    if (!this.client || !questionData) return null;
+    try {
+      const optLetter = ['A', 'B', 'C', 'D'][questionData.correct_index] || 'A';
+      const payload = {
+        round_id: roundNum,
+        order_index: questionData.order_index || 1,
+        question_text: questionData.question_text,
+        option_a: questionData.options ? questionData.options[0] : "",
+        option_b: questionData.options ? questionData.options[1] : "",
+        option_c: questionData.options ? questionData.options[2] : "",
+        option_d: questionData.options ? questionData.options[3] : "",
+        correct_option: optLetter,
+        points: Number(questionData.points) || 20,
+        hint: questionData.hint || ""
+      };
+      const { data, error } = await this.client.from("questions").insert(payload);
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase insertQuestion error:", e);
+      return null;
+    }
+  }
+
+  async deleteQuestion(questionId, roundNum = null) {
+    if (!this.client) return null;
+    try {
+      let query = this.client.from("questions").delete();
+      if (questionId) {
+        query = query.eq("id", questionId);
+      }
+      const { data, error } = await query;
+      return { data, error };
+    } catch (e) {
+      console.warn("Supabase deleteQuestion error:", e);
       return null;
     }
   }

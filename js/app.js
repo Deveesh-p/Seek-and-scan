@@ -70,12 +70,17 @@ class SeekAndScanApp {
     this.setupEventListeners();
     this.startGlobalTimer();
 
-    // Attempt to sync 3 rounds from Supabase
-    if (window.supabaseClient && window.supabaseClient.isConfigured()) {
+    // Attempt to sync 3 rounds and hints from Supabase
+    if (window.gameStore && typeof window.gameStore.syncLiveRoundsFromSupabase === 'function') {
+      try {
+        await window.gameStore.syncLiveRoundsFromSupabase();
+      } catch (e) {}
+    } else if (window.supabaseClient && window.supabaseClient.isConfigured()) {
       try {
         const liveRounds = await window.supabaseClient.fetchLiveRounds();
         if (liveRounds && liveRounds.length > 0) {
           window.gameStore.rounds = liveRounds;
+          window.gameStore.save();
           console.log("✅ Synchronized 3 rounds directly from Supabase PostgreSQL!");
         }
       } catch (e) {}

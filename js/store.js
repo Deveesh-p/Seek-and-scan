@@ -1368,7 +1368,21 @@ class GameStore {
         // 3b. Sync remote master rounds if customized by admin
         const adminRemote = liveTeams.find(t => t && t.role === 'admin' && t.master_rounds);
         if (adminRemote && Array.isArray(adminRemote.master_rounds) && adminRemote.master_rounds.length > 0) {
+          adminRemote.master_rounds.forEach(r => {
+            if (r && Array.isArray(r.questions)) {
+              r.questions.forEach(q => {
+                if (!q.hint || !q.hint.trim()) {
+                  const defRound = (typeof DEFAULT_ROUNDS !== 'undefined' ? DEFAULT_ROUNDS : []).find(dr => dr.round_number === r.round_number);
+                  const defQ = defRound ? defRound.questions.find(dq => dq.id == q.id || dq.order_index == q.order_index) : null;
+                  q.hint = defQ && defQ.hint ? defQ.hint : "Review technical concepts and eliminate unlikely options.";
+                }
+              });
+            }
+          });
           this.rounds = adminRemote.master_rounds;
+          try {
+            localStorage.setItem('seek_scan_rounds', JSON.stringify(this.rounds));
+          } catch (e) {}
         }
 
         // 4. Merge all active remote teams into this.teams with their live progress
@@ -1526,28 +1540,63 @@ class GameStore {
     return this.teams;
   }
 
+  // --- Live Rounds Sync from Supabase ---
+  async syncLiveRoundsFromSupabase() {
+    if (!window.supabaseClient || !window.supabaseClient.isConfigured()) return this.rounds;
+    try {
+      const liveRounds = await window.supabaseClient.fetchLiveRounds();
+      if (liveRounds && Array.isArray(liveRounds) && liveRounds.length > 0) {
+        liveRounds.forEach(lr => {
+          if (lr && Array.isArray(lr.questions)) {
+            lr.questions.forEach(lq => {
+              if (!lq.hint || !lq.hint.trim()) {
+                const defRound = (typeof DEFAULT_ROUNDS !== 'undefined' ? DEFAULT_ROUNDS : []).find(dr => dr.round_number === lr.round_number);
+                const defQ = defRound ? defRound.questions.find(dq => dq.id == lq.id || dq.order_index == lq.order_index) : null;
+                lq.hint = defQ && defQ.hint ? defQ.hint : "Review technical concepts and eliminate unlikely options.";
+              }
+            });
+          }
+        });
+        this.rounds = liveRounds;
+        this.save();
+        console.log("✅ Synchronized live tournament stations, questions, and hints from Supabase!");
+      }
+    } catch (e) {
+      console.warn("Could not sync live rounds from Supabase:", e);
+    }
+    return this.rounds;
+  }
+
   // --- Admin Editing ---
-  updateQuestion(roundNum, questionId, updatedData) {
+  async updateQuestion(roundNum, questionId, updatedData) {
     const round = this.rounds.find(r => r.round_number === roundNum);
     if (!round) return false;
 
-    const qIndex = round.questions.findIndex(q => q.id === questionId);
+    const qIndex = round.questions.findIndex(q => 
+      q.id == questionId || 
+      String(q.id) === String(questionId) || 
+      (updatedData && updatedData.order_index !== undefined && q.order_index == updatedData.order_index)
+    );
+
     if (qIndex !== -1) {
       round.questions[qIndex] = { ...round.questions[qIndex], ...updatedData };
       this.save();
       if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-        window.supabaseClient.updateMasterRounds(this.rounds);
+        try {
+          await window.supabaseClient.updateQuestion(roundNum, round.questions[qIndex]);
+        } catch (e) {}
+        await window.supabaseClient.updateMasterRounds(this.rounds);
       }
       return true;
     }
     return false;
   }
 
-  addQuestion(roundNum, newQuestionData) {
+  async addQuestion(roundNum, newQuestionData) {
     const round = this.rounds.find(r => r.round_number === roundNum);
     if (!round) return false;
 
-    const newId = Date.now();
+    const newId = (roundNum * 1000) + (Date.now() % 900);
     const newQ = {
       id: newId,
       order_index: round.questions.length + 1,
@@ -1561,25 +1610,31 @@ class GameStore {
     round.questions.push(newQ);
     this.save();
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-      window.supabaseClient.updateMasterRounds(this.rounds);
+      try {
+        await window.supabaseClient.insertQuestion(roundNum, newQ);
+      } catch (e) {}
+      await window.supabaseClient.updateMasterRounds(this.rounds);
     }
     return newQ;
   }
 
-  deleteQuestion(roundNum, questionId) {
+  async deleteQuestion(roundNum, questionId) {
     const round = this.rounds.find(r => r.round_number === roundNum);
     if (!round) return false;
 
-    round.questions = round.questions.filter(q => q.id !== questionId);
+    round.questions = round.questions.filter(q => q.id != questionId && String(q.id) !== String(questionId));
     round.questions.forEach((q, idx) => { q.order_index = idx + 1; });
     this.save();
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-      window.supabaseClient.updateMasterRounds(this.rounds);
+      try {
+        await window.supabaseClient.deleteQuestion(questionId, roundNum);
+      } catch (e) {}
+      await window.supabaseClient.updateMasterRounds(this.rounds);
     }
     return true;
   }
 
-  updateRoundMetadata(roundNum, title, location_clue, unlock_code, location_name) {
+  async updateRoundMetadata(roundNum, title, location_clue, unlock_code, location_name) {
     const round = this.rounds.find(r => r.round_number === roundNum);
     if (!round) return false;
 
@@ -1591,13 +1646,15 @@ class GameStore {
     this.save();
 
     if (window.supabaseClient && window.supabaseClient.isConfigured()) {
-      window.supabaseClient.updateRound(round);
-      window.supabaseClient.updateMasterRounds(this.rounds);
+      try {
+        await window.supabaseClient.updateRound(round);
+      } catch (e) {}
+      await window.supabaseClient.updateMasterRounds(this.rounds);
     }
     return true;
   }
 
-  updateRoundClueAndUnlock(roundNum, location_clue, unlock_code, location_name) {
+  async updateRoundClueAndUnlock(roundNum, location_clue, unlock_code, location_name) {
     return this.updateRoundMetadata(roundNum, undefined, location_clue, unlock_code, location_name);
   }
 
